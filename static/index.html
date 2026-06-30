@@ -316,7 +316,7 @@
 
   <!-- 後端連線警告 -->
   <div class="alert warn" id="alert-demo">
-    ⚠️ <strong>目前顯示示範資料</strong>：後端伺服器未連線。請先執行 <code>啟動伺服器.bat</code>，再重新整理本頁面。
+    ⚠️ <strong>目前顯示示範資料</strong>：資料暫時無法載入，請稍後重新整理頁面。
   </div>
   <div class="alert error" id="alert-error"></div>
 
@@ -570,7 +570,7 @@ async function loadFromAPI() {
     document.getElementById("alert-demo").classList.remove("show");
     return true;
   } catch (e) {
-    console.warn("後端未連線，使用示範資料:", e.message);
+    console.warn("API 連線失敗，使用示範資料:", e.message);
     usingDemo = true;
     document.getElementById("alert-demo").classList.add("show");
     Object.entries(DEMO_ETF).forEach(([code, d]) => {
