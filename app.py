@@ -1097,54 +1097,46 @@ def get_etf_changes_history(etf_code):
 
 @app.route("/api/etf/<etf_code>/changes/all", methods=["GET"])
 def get_all_trade_history(etf_code):
-    """回傳該ETF自成立以來所有個股進出記錄，按進場日降冪排列。"""
+    """
+    回傳該ETF自成立以來所有個股進出記錄，直接從爬蟲取資料保證欄位完整。
+    同時在背景更新 DB 快取。
+    """
     etf_code = etf_code.upper()
     if etf_code not in ETF_CONFIG:
         return jsonify({"success": False, "error": f"不支援的ETF代號: {etf_code}"}), 404
 
-    # 同步最新資料（同步等待確保 Modal 能立即顯示）
-    sync_trade_records(etf_code)
+    # 直接爬取最新資料（保證 exit_price / pnl 欄位完整）
+    from scrapers.history import scrape_trade_records as _scrape
+    trades = _scrape(etf_code)
 
-    conn = get_db()
-    if not conn:
-        return jsonify({"success": False, "error": "DB 連線失敗"}), 500
-    try:
-        cur = conn.cursor()
-        cur.execute("""
-            SELECT stock_code, stock_name, entry_date, exit_date, holding_days,
-                   entry_price, exit_price, current_price, shares,
-                   return_pct, realized_pnl, unrealized_pnl, status
-            FROM etf_trade_records
-            WHERE etf_code = %s
-            ORDER BY entry_date DESC, stock_code
-        """, (etf_code,))
-        rows = cur.fetchall()
-    except Exception as e:
-        return jsonify({"success": False, "error": str(e)}), 500
-    finally:
-        conn.close()
+    # 背景同步至 DB（不阻塞回應）
+    threading.Thread(target=sync_trade_records, args=(etf_code,), daemon=True).start()
 
-    def _f(v):
-        return float(v) if v is not None else None
+    if not trades:
+        return jsonify({"success": False, "error": "無法取得交易記錄，請稍後再試"}), 503
+
+    # trades 已按 entry_date 升冪，回傳降冪
+    trades_desc = sorted(trades, key=lambda t: t["entry_date"], reverse=True)
 
     records = []
-    for r in rows:
-        is_closed = bool(r[3])
+    for t in trades_desc:
+        is_closed = bool(t.get("exit_date"))
+        pnl = t.get("realized_pnl") if is_closed else t.get("unrealized_pnl")
         records.append({
-            "code":          r[0],
-            "name":          r[1],
-            "entry_date":    str(r[2]) if r[2] else None,
-            "exit_date":     str(r[3]) if r[3] else None,
-            "holding_days":  r[4],
-            "entry_price":   _f(r[5]),
-            "exit_price":    _f(r[6]),
-            "current_price": _f(r[7]),
-            "shares":        r[8],
-            "return_pct":    _f(r[9]),
-            "realized_pnl":  _f(r[10]),
-            "unrealized_pnl":_f(r[11]),
-            "pnl":           _f(r[10]) if is_closed else _f(r[11]),
-            "status":        r[12] or ("closed" if is_closed else ""),
+            "code":          t["code"],
+            "name":          t["name"],
+            "entry_date":    t["entry_date"],
+            "exit_date":     t.get("exit_date"),
+            "holding_days":  t.get("holding_days"),
+            "entry_price":   t.get("entry_price"),
+            "exit_price":    t.get("exit_price"),
+            "current_price": t.get("current_price"),
+            "shares":        t.get("shares"),
+            "return_pct":    t.get("return_pct"),
+            "realized_pnl":  t.get("realized_pnl"),
+            "unrealized_pnl":t.get("unrealized_pnl"),
+            "pnl":           pnl,
+            "status":        t.get("status", ""),
             "is_closed":     is_closed,
         })
 
