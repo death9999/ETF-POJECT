@@ -1299,9 +1299,11 @@ function switchTab(name, el) {
 }
 
 let _changesPeriod = 'today';
+let _changesOffset = 0;
 
 function switchChangesPeriod(period) {
   _changesPeriod = period;
+  _changesOffset = 0;
   // Update active tab button
   document.querySelectorAll('.changes-subtab').forEach(btn => {
     btn.classList.toggle('active', btn.dataset.period === period);
@@ -1324,9 +1326,10 @@ async function loadChanges() {
       renderChangesFallback();
     }
   } else {
-    // week or month
+    // week or month — support offset for period navigation
     try {
-      const json = await fetch('/api/etf/' + code + '/changes/history?period=' + _changesPeriod).then(r => r.json());
+      const offset = _changesOffset || 0;
+      const json = await fetch('/api/etf/' + code + '/changes/history?period=' + _changesPeriod + '&offset=' + offset).then(r => r.json());
       if (!json.success) throw new Error('API error');
       renderChangesHistory(json);
     } catch(e) {
@@ -1409,63 +1412,67 @@ function renderChangesFallback() {
 function renderChangesHistory(json) {
   const el = document.getElementById('changes-content');
   if (!el) return;
+
+  const periodLabel = json.period === 'month' ? '月' : '週';
+  const periodLabelFull = json.period === 'month' ? '本月' : '本週';
+  const label = json.period_label || (json.period_start + ' ~ ' + json.period_end);
+  const offset = json.offset || 0;
   const data = json.data || [];
-  const periodLabel = json.period === 'month' ? '本月' : '本週';
-  const isSummary = json.summary_mode === true;
+  const typeClass = { '新增':'tag tag-add', '加碼':'tag tag-buy', '減碼':'tag tag-sell', '刪除':'tag tag-remove' };
+  const typeLabel2 = { '新增':'進場', '加碼':'加碼', '減碼':'減碼', '刪除':'清倉' };
+
+  // 導覽列（前後期）
+  const nav = '<div style="display:flex;align-items:center;gap:8px;margin-bottom:12px">' +
+    '<button onclick="_changesOffset=' + (offset+1) + ';loadChanges()" style="padding:4px 12px;border:1px solid var(--border);border-radius:6px;background:var(--card);cursor:pointer;font-size:13px">◀ 上一' + periodLabel + '</button>' +
+    '<span style="font-size:14px;font-weight:600;flex:1;text-align:center">' + label + '</span>' +
+    (offset > 0
+      ? '<button onclick="_changesOffset=' + (offset-1) + ';loadChanges()" style="padding:4px 12px;border:1px solid var(--border);border-radius:6px;background:var(--card);cursor:pointer;font-size:13px">下一' + periodLabel + ' ▶</button>'
+      : '<span style="width:88px"></span>') +
+  '</div>';
 
   if (!data.length) {
-    el.innerHTML = '<div class="empty-state">📭 ' + periodLabel + '尚無快照資料<br><small>持股爬取後將自動建立比較基準</small></div>';
+    el.innerHTML = nav + '<div class="empty-state">📭 ' + label + ' 本期無進出異動記錄<br><small>可繼續往前查詢歷史資料</small></div>';
     return;
   }
 
-  // 快照 diff 模式：若 0 變動則顯示「無異動」
-  if (isSummary && data.length === 1) {
-    const d0 = data[0];
-    if ((d0.add + d0.buy + d0.sell + d0.remove) === 0) {
-      el.innerHTML = '<div class="empty-state" style="color:var(--green)">✅ ' + periodLabel + '持股無異動<br><small>' + (d0.date_range || '') + '</small></div>';
-      return;
-    }
+  const day = data[0];
+  const changes = day.changes || [];
+  const added   = changes.filter(c => c.type === '新增');
+  const removed = changes.filter(c => c.type === '刪除');
+
+  const makeRows = (list) => list.map(c => {
+    const isAdd = c.type === '新增';
+    const colorCls = isAdd ? 'buy-color' : 'sell-color';
+    const entryInfo = c.entry_date ? '進場 ' + c.entry_date + (c.entry_price ? ' @ ' + c.entry_price : '') : '';
+    const exitInfo  = c.exit_date  ? '出場 ' + c.exit_date  + (c.holding_days ? '（持有 ' + c.holding_days + '天）' : '') : '持有中';
+    return '<tr>' +
+      '<td style="font-family:monospace;font-weight:600">' + c.code + '</td>' +
+      '<td>' + (c.name || '') + '</td>' +
+      '<td style="font-size:12px;color:var(--text2)">' + (isAdd ? entryInfo : exitInfo) + '</td>' +
+      '<td><span class="' + (typeClass[c.type] || 'tag') + '">' + (typeLabel2[c.type] || c.type) + '</span></td>' +
+    '</tr>';
+  }).join('');
+
+  let html = nav;
+
+  // 彙總卡片
+  html += '<div class="change-cards">' +
+    '<div class="change-card"><div class="change-card-label">新增進場</div><div class="change-card-val add-color">' + added.length + '</div><div class="change-card-sub">檔</div></div>' +
+    '<div class="change-card"><div class="change-card-label">清倉出場</div><div class="change-card-val remove-color">' + removed.length + '</div><div class="change-card-sub">檔</div></div>' +
+  '</div>';
+
+  if (added.length) {
+    html += '<div class="card" style="margin-top:12px">' +
+      '<div class="card-title">進場個股（' + added.length + ' 檔）</div>' +
+      '<div class="table-wrap"><table><thead><tr><th>代號</th><th>名稱</th><th>進場資訊</th><th>操作</th></tr></thead>' +
+      '<tbody>' + makeRows(added) + '</tbody></table></div></div>';
   }
 
-  const typeClass = { '新增':'tag tag-add', '加碼':'tag tag-buy', '減碼':'tag tag-sell', '刪除':'tag tag-remove' };
-  const typeLabel = { '新增':'新增', '加碼':'加碼', '減碼':'減碼', '刪除':'刪除' };
-
-  let headerTitle;
-  if (isSummary && data[0] && data[0].date_range) {
-    headerTitle = periodLabel + '持股累計變動（' + data[0].date_range + '）';
-  } else {
-    headerTitle = periodLabel + '操作彙總（共 ' + data.length + ' 個交易日）';
-  }
-  let html = '<div class="card" style="margin-bottom:16px"><div class="card-title">' + headerTitle + '</div></div>';
-
-  for (const day of data) {
-    const totalBuy = day.buy + day.add;
-    const totalSell = day.sell + day.remove;
-    const rows = (day.changes || []).map(c => {
-      const amtSign = c.type === '加碼' || c.type === '新增' ? 'buy-color' : 'sell-color';
-      // 快照 diff 模式：顯示比例變動（amount 已含%符號）；舊格式：顯示張數
-      const changeDisplay = (c.pct_change !== undefined && c.shares === 0)
-        ? '<td style="text-align:right" class="' + amtSign + '">' + (c.amount || '') + '</td>'
-        : '<td style="text-align:right" class="' + amtSign + '">' + (c.shares > 0 ? '+' : '') + (c.shares || 0) + '張</td>';
-      return '<tr><td style="font-family:monospace;font-weight:600">' + c.code + '</td>' +
-             '<td>' + (c.name || '') + '</td>' +
-             changeDisplay +
-             '<td><span class="' + (typeClass[c.type] || 'tag tag-hold') + '">' + (typeLabel[c.type] || c.type) + '</span></td></tr>';
-    }).join('');
-
-    const dateLabel = isSummary ? (day.date_range || day.trade_date) : day.trade_date;
-    html += '<div class="history-day-card">' +
-      '<div class="history-day-header">' +
-        '<span class="hd-date">' + dateLabel + '</span>' +
-        '<span class="hd-badges">' +
-          (totalBuy ? '<span class="tag tag-buy">加碼+新增 ' + totalBuy + '檔</span>' : '') +
-          (totalSell ? '<span class="tag tag-sell">減碼+清倉 ' + totalSell + '檔</span>' : '') +
-        '</span>' +
-      '</div>' +
-      (rows ? '<div class="history-day-body"><div class="table-wrap"><table>' +
-        '<thead><tr><th>代號</th><th>名稱</th><th style="text-align:right">比例變動</th><th>操作</th></tr></thead>' +
-        '<tbody>' + rows + '</tbody></table></div></div>' : '') +
-    '</div>';
+  if (removed.length) {
+    html += '<div class="card" style="margin-top:12px">' +
+      '<div class="card-title">出場個股（' + removed.length + ' 檔）</div>' +
+      '<div class="table-wrap"><table><thead><tr><th>代號</th><th>名稱</th><th>出場資訊</th><th>操作</th></tr></thead>' +
+      '<tbody>' + makeRows(removed) + '</tbody></table></div></div>';
   }
 
   el.innerHTML = html;

@@ -22,6 +22,7 @@ from scrapers.prices import scrape_moneydj_price, get_stock_close
 from scrapers.changes import (scrape_daily_changes, save_changes_snapshot,
                               save_holdings_snapshot, seed_period_snapshots,
                               get_period_diff)
+from scrapers.history import sync_trade_records, get_period_trade_changes
 from routes.auth import auth_bp
 from routes.ai_stocks import ai_stocks_bp, _ai_stock_weekly_scheduler
 from routes.pages import pages_bp
@@ -1008,74 +1009,95 @@ def get_etf_changes(etf_code):
 
 @app.route("/api/etf/<etf_code>/changes/history", methods=["GET"])
 def get_etf_changes_history(etf_code):
-    """回傳指定ETF的本週或本月累計持股變動（持股快照 diff）"""
+    """
+    本週或本月個股進出記錄（trade-based），支援 offset 查歷史。
+    ?period=week|month  &offset=0（本期）|1（上期）|2（上上期）…
+    """
     etf_code = etf_code.upper()
-    period = request.args.get("period", "week")
     if etf_code not in ETF_CONFIG:
         return jsonify({"success": False, "error": f"不支援的ETF代號: {etf_code}"}), 404
 
     from datetime import date as _date, timedelta as _td
     today = _date.today()
-    if period == "month":
-        since_date = today.replace(day=1)
-    else:
-        since_date = today - _td(days=today.weekday())  # 本週一
+    period = request.args.get("period", "week")
+    try:
+        offset = int(request.args.get("offset", 0))
+    except ValueError:
+        offset = 0
 
-    # 優先用持股快照 diff
-    diff = get_period_diff(etf_code, since_date)
-    if diff:
-        return jsonify({
-            "success": True,
-            "code": etf_code,
-            "name": ETF_CONFIG[etf_code]["name"],
-            "period": period,
-            "start_date": since_date.isoformat(),
-            "summary_mode": True,
-            "data": [{"trade_date": today.isoformat(), **diff}]
+    if period == "month":
+        # 計算目標月份（offset=0 為本月，offset=1 為上月…）
+        month_start = today.replace(day=1)
+        for _ in range(offset):
+            prev = month_start - _td(days=1)
+            month_start = prev.replace(day=1)
+        month_end = (month_start.replace(day=28) + _td(days=4))
+        month_end = month_end.replace(day=1) - _td(days=1)  # 月末
+        period_start = month_start
+        period_end = month_end if offset > 0 else today
+        period_label = f"{month_start.strftime('%Y/%m')}"
+    else:
+        # 計算目標週（offset=0 為本週，offset=1 為上週…）
+        monday = today - _td(days=today.weekday())
+        monday -= _td(weeks=offset)
+        sunday = monday + _td(days=6)
+        period_start = monday
+        period_end = sunday if offset > 0 else today
+        period_label = f"{monday.strftime('%m/%d')}~{period_end.strftime('%m/%d')}"
+
+    # 先同步最新的交易記錄（背景）
+    if offset == 0:
+        threading.Thread(target=sync_trade_records, args=(etf_code,), daemon=True).start()
+
+    # 從 etf_trade_records 查詢期間進出
+    result = get_period_trade_changes(etf_code, period_start, period_end)
+    added   = result["added"]
+    removed = result["removed"]
+
+    # 組成 changes 清單（符合前端 renderChanges 格式）
+    changes = []
+    for s in added:
+        changes.append({
+            "code": s["code"], "name": s["name"],
+            "shares": 0, "pct_change": 0,
+            "amount": f"進場 {s['entry_date']}",
+            "type": "新增",
+            "entry_date": s["entry_date"],
+            "exit_date": s.get("exit_date"),
+            "entry_price": s.get("entry_price"),
+        })
+    for s in removed:
+        changes.append({
+            "code": s["code"], "name": s["name"],
+            "shares": 0, "pct_change": 0,
+            "amount": f"出場 {s['exit_date']}",
+            "type": "刪除",
+            "entry_date": s.get("entry_date"),
+            "exit_date": s.get("exit_date"),
+            "holding_days": s.get("holding_days"),
+            "entry_price": s.get("entry_price"),
         })
 
-    # Fallback：查舊的 etf_changes_history 表
-    try:
-        conn = get_db()
-        if not conn:
-            return jsonify({"success": False, "error": "DB 連線失敗"}), 500
-        try:
-            cur = conn.cursor()
-            cur.execute("""
-                SELECT trade_date, date_range, add_count, buy_count,
-                       sell_count, remove_count, buy_amount, sell_amount, changes_json
-                FROM etf_changes_history
-                WHERE etf_code=%s AND trade_date >= %s
-                ORDER BY trade_date DESC
-            """, (etf_code, since_date.isoformat()))
-            rows = cur.fetchall()
-        finally:
-            conn.close()
-    except Exception as e:
-        return jsonify({"success": False, "error": str(e)}), 500
-
-    history = []
-    for row in rows:
-        try:
-            history.append({
-                "trade_date": str(row[0]),
-                "date_range": row[1],
-                "add": row[2] or 0, "buy": row[3] or 0,
-                "sell": row[4] or 0, "remove": row[5] or 0,
-                "buy_amount": float(row[6] or 0),
-                "sell_amount": float(row[7] or 0),
-                "changes": json.loads(row[8] or "[]")
-            })
-        except Exception:
-            continue
+    has_data = bool(added or removed)
 
     return jsonify({
         "success": True,
         "code": etf_code,
         "name": ETF_CONFIG[etf_code]["name"],
         "period": period,
-        "start_date": since_date.isoformat(),
-        "data": history
+        "period_label": period_label,
+        "period_start": period_start.isoformat(),
+        "period_end": period_end.isoformat(),
+        "offset": offset,
+        "trade_mode": True,
+        "has_data": has_data,
+        "data": [{
+            "trade_date": period_end.isoformat(),
+            "date_range": f"{period_start} → {period_end}",
+            "add": len(added), "buy": 0, "sell": 0, "remove": len(removed),
+            "buy_amount": 0.0, "sell_amount": 0.0,
+            "changes": changes
+        }] if has_data else []
     })
 
 

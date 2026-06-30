@@ -109,6 +109,21 @@ def init_db():
                 UNIQUE(etf_code, trade_date)
             )
         """)
+        # 個股進出交易記錄表（從 etfinfo.tw active NUXT_DATA 解析）
+        cur.execute("""
+            CREATE TABLE IF NOT EXISTS etf_trade_records (
+                id SERIAL PRIMARY KEY,
+                etf_code VARCHAR(10) NOT NULL,
+                stock_code VARCHAR(10) NOT NULL,
+                stock_name VARCHAR(100) DEFAULT '',
+                entry_date DATE NOT NULL,
+                exit_date DATE,
+                holding_days INTEGER,
+                entry_price NUMERIC(10,2),
+                scraped_at TIMESTAMP DEFAULT NOW(),
+                UNIQUE(etf_code, stock_code, entry_date)
+            )
+        """)
         # 持股快照表（供期間 diff：今日/本週/本月 累計變動）
         cur.execute("""
             CREATE TABLE IF NOT EXISTS etf_holdings_snapshot (
