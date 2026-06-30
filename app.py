@@ -20,7 +20,8 @@ from db import get_db, init_db, DATABASE_URL
 from scrapers.holdings import safe_get, scrape_etfinfo, scrape_fhtrust, scrape_capital, FALLBACK
 from scrapers.prices import scrape_moneydj_price, get_stock_close
 from scrapers.changes import (scrape_daily_changes, save_changes_snapshot,
-                              save_holdings_snapshot, get_period_diff)
+                              save_holdings_snapshot, seed_period_snapshots,
+                              get_period_diff)
 from routes.auth import auth_bp
 from routes.ai_stocks import ai_stocks_bp, _ai_stock_weekly_scheduler
 from routes.pages import pages_bp
@@ -121,11 +122,13 @@ def load_etf_list():
         if conn:
             try:
                 cur = conn.cursor()
-                cur.execute("SELECT code,name,issuer,source_key FROM etf_configs ORDER BY id")
+                cur.execute("SELECT code,name,issuer,source_key,inception_date FROM etf_configs ORDER BY id")
                 rows = cur.fetchall()
                 if rows:
                     print(f"[設定] 從資料庫載入 {len(rows)} 檔 ETF")
-                    return [{"code": r[0], "name": r[1], "issuer": r[2], "source_key": r[3]} for r in rows]
+                    return [{"code": r[0], "name": r[1], "issuer": r[2],
+                             "source_key": r[3],
+                             "inception_date": str(r[4]) if r[4] else ""} for r in rows]
             except Exception as e:
                 print(f"[設定] 資料庫載入失敗: {e}")
             finally:
@@ -604,8 +607,11 @@ def get_etf_holdings(etf_code):
         source = "demo"
     else:
         source = "live"
-        # 儲存今日持股快照（供本週/本月累計 diff）
-        threading.Thread(target=save_holdings_snapshot,
+        # 儲存今日持股快照，並補建週初/月初種子快照（ON CONFLICT DO NOTHING）
+        def _snapshot_tasks(code, h):
+            save_holdings_snapshot(code, h)
+            seed_period_snapshots(code, h)
+        threading.Thread(target=_snapshot_tasks,
                          args=(etf_code, holdings), daemon=True).start()
 
     result = {

@@ -87,6 +87,10 @@ def init_db():
                 created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
             )
         """)
+        # 補上 inception_date 欄位（若舊表已存在則 ALTER 補充）
+        cur.execute("""
+            ALTER TABLE etf_configs ADD COLUMN IF NOT EXISTS inception_date DATE
+        """)
         # 每日操作日報快照表
         cur.execute("""
             CREATE TABLE IF NOT EXISTS etf_changes_history (
@@ -211,17 +215,33 @@ def init_db():
             cur.execute("SELECT COUNT(*) FROM etf_configs")
             if cur.fetchone()[0] == 0:
                 default_etfs = [
-                    ("00992A","主動群益科技創新","群益投信","etfinfo"),
-                    ("00991A","主動復華未來50","復華投信","etfinfo"),
-                    ("00981A","主動統一台股增長","統一投信","etfinfo"),
-                    ("00403A","主動統一升級50","統一投信","etfinfo"),
+                    ("00992A","主動群益科技創新","群益投信","etfinfo","2023-12-20"),
+                    ("00991A","主動復華未來50",  "復華投信","etfinfo","2024-01-31"),
+                    ("00981A","主動統一台股增長","統一投信","etfinfo","2024-02-22"),
+                    ("00403A","主動統一升級50",  "統一投信","etfinfo","2022-08-08"),
                 ]
                 cur.executemany(
-                    "INSERT INTO etf_configs (code,name,issuer,source_key) VALUES (%s,%s,%s,%s) ON CONFLICT DO NOTHING",
+                    "INSERT INTO etf_configs (code,name,issuer,source_key,inception_date) "
+                    "VALUES (%s,%s,%s,%s,%s) ON CONFLICT DO NOTHING",
                     default_etfs
                 )
                 conn.commit()
-                print("[DB] 插入預設 4 檔 ETF")
+                print("[DB] 插入預設 4 檔 ETF（含成立日）")
+            else:
+                # 補上已有 ETF 的成立日（若欄位為 NULL）
+                known_inception = {
+                    "00992A": "2023-12-20",
+                    "00991A": "2024-01-31",
+                    "00981A": "2024-02-22",
+                    "00403A": "2022-08-08",
+                }
+                for code, dt in known_inception.items():
+                    cur.execute(
+                        "UPDATE etf_configs SET inception_date=%s "
+                        "WHERE code=%s AND inception_date IS NULL",
+                        (dt, code)
+                    )
+                conn.commit()
     except Exception as e:
         print(f"[DB] 初始化錯誤: {e}")
         import traceback; traceback.print_exc()

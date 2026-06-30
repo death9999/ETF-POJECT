@@ -1414,8 +1414,17 @@ function renderChangesHistory(json) {
   const isSummary = json.summary_mode === true;
 
   if (!data.length) {
-    el.innerHTML = '<div class="empty-state">📭 ' + periodLabel + '尚無資料<br><small>持股資料累積後將自動顯示累計變動</small></div>';
+    el.innerHTML = '<div class="empty-state">📭 ' + periodLabel + '尚無快照資料<br><small>持股爬取後將自動建立比較基準</small></div>';
     return;
+  }
+
+  // 快照 diff 模式：若 0 變動則顯示「無異動」
+  if (isSummary && data.length === 1) {
+    const d0 = data[0];
+    if ((d0.add + d0.buy + d0.sell + d0.remove) === 0) {
+      el.innerHTML = '<div class="empty-state" style="color:var(--green)">✅ ' + periodLabel + '持股無異動<br><small>' + (d0.date_range || '') + '</small></div>';
+      return;
+    }
   }
 
   const typeClass = { '新增':'tag tag-add', '加碼':'tag tag-buy', '減碼':'tag tag-sell', '刪除':'tag tag-remove' };

@@ -114,6 +114,50 @@ def get_period_diff(etf_code, since_date):
         conn.close()
 
 
+def seed_period_snapshots(etf_code, holdings):
+    """
+    以當前持股建立歷史參考快照（首次執行或無舊快照時）。
+    種子日期：本週一、本月一日、上月一日。
+    ON CONFLICT DO NOTHING 確保冪等。
+    """
+    if not holdings:
+        return
+    today = date.today()
+    monday = today - timedelta(days=today.weekday())
+    month_start = today.replace(day=1)
+    if month_start.month == 1:
+        prev_month = month_start.replace(year=month_start.year - 1, month=12)
+    else:
+        prev_month = month_start.replace(month=month_start.month - 1)
+
+    seed_dates = {monday, month_start, prev_month} - {today}
+    if not seed_dates:
+        return
+
+    holdings_json = json.dumps(holdings, ensure_ascii=False)
+    conn = get_db()
+    if not conn:
+        return
+    try:
+        cur = conn.cursor()
+        seeded = []
+        for sd in sorted(seed_dates):
+            cur.execute("""
+                INSERT INTO etf_holdings_snapshot (etf_code, snapshot_date, holdings_json)
+                VALUES (%s, %s, %s)
+                ON CONFLICT (etf_code, snapshot_date) DO NOTHING
+            """, (etf_code, sd.isoformat(), holdings_json))
+            if cur.rowcount > 0:
+                seeded.append(str(sd))
+        conn.commit()
+        if seeded:
+            print(f"[DB] {etf_code} 歷史種子快照已建立: {seeded}")
+    except Exception as e:
+        print(f"[DB] seed_period_snapshots 失敗: {e}")
+    finally:
+        conn.close()
+
+
 def scrape_daily_changes(etf_code):
     """從 etfinfo.tw/active 抓取最新操作日報"""
     url = f"https://www.etfinfo.tw/etf/{etf_code}/active"
