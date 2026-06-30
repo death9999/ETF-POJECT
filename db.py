@@ -120,10 +120,33 @@ def init_db():
                 exit_date DATE,
                 holding_days INTEGER,
                 entry_price NUMERIC(10,2),
+                exit_price NUMERIC(10,2),
+                current_price NUMERIC(10,2),
+                shares INTEGER,
+                avg_cost NUMERIC(10,2),
+                return_pct NUMERIC(8,2),
+                realized_pnl NUMERIC(14,2),
+                unrealized_pnl NUMERIC(14,2),
+                total_invested NUMERIC(14,2),
+                status VARCHAR(20) DEFAULT '',
                 scraped_at TIMESTAMP DEFAULT NOW(),
                 UNIQUE(etf_code, stock_code, entry_date)
             )
         """)
+        # 舊表若已存在，補上新欄位（冪等）
+        for col_def in [
+            "exit_price NUMERIC(10,2)",
+            "current_price NUMERIC(10,2)",
+            "shares INTEGER",
+            "avg_cost NUMERIC(10,2)",
+            "return_pct NUMERIC(8,2)",
+            "realized_pnl NUMERIC(14,2)",
+            "unrealized_pnl NUMERIC(14,2)",
+            "total_invested NUMERIC(14,2)",
+            "status VARCHAR(20) DEFAULT ''",
+        ]:
+            col_name = col_def.split()[0]
+            cur.execute(f"ALTER TABLE etf_trade_records ADD COLUMN IF NOT EXISTS {col_def}")
         # 持股快照表（供期間 diff：今日/本週/本月 累計變動）
         cur.execute("""
             CREATE TABLE IF NOT EXISTS etf_holdings_snapshot (

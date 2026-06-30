@@ -1111,7 +1111,9 @@ def get_all_trade_history(etf_code):
     try:
         cur = conn.cursor()
         cur.execute("""
-            SELECT stock_code, stock_name, entry_date, exit_date, holding_days, entry_price
+            SELECT stock_code, stock_name, entry_date, exit_date, holding_days,
+                   entry_price, exit_price, current_price, shares,
+                   return_pct, realized_pnl, unrealized_pnl, status
             FROM etf_trade_records
             WHERE etf_code = %s
             ORDER BY entry_date DESC, stock_code
@@ -1122,15 +1124,28 @@ def get_all_trade_history(etf_code):
     finally:
         conn.close()
 
+    def _f(v):
+        return float(v) if v is not None else None
+
     records = []
     for r in rows:
+        is_closed = bool(r[3])
         records.append({
-            "code": r[0], "name": r[1],
-            "entry_date": str(r[2]) if r[2] else None,
-            "exit_date":  str(r[3]) if r[3] else None,
-            "holding_days": r[4],
-            "entry_price":  float(r[5]) if r[5] else None,
-            "status": "持有中" if not r[3] else f"已出場（{r[4] or '?'}天）",
+            "code":          r[0],
+            "name":          r[1],
+            "entry_date":    str(r[2]) if r[2] else None,
+            "exit_date":     str(r[3]) if r[3] else None,
+            "holding_days":  r[4],
+            "entry_price":   _f(r[5]),
+            "exit_price":    _f(r[6]),
+            "current_price": _f(r[7]),
+            "shares":        r[8],
+            "return_pct":    _f(r[9]),
+            "realized_pnl":  _f(r[10]),
+            "unrealized_pnl":_f(r[11]),
+            "pnl":           _f(r[10]) if is_closed else _f(r[11]),
+            "status":        r[12] or ("closed" if is_closed else ""),
+            "is_closed":     is_closed,
         })
 
     return jsonify({

@@ -72,8 +72,17 @@ def scrape_trade_records(etf_code):
         entry_date = resolve(item["entryDate"])
         exit_ref = item.get("exitDate")
         exit_date = resolve(exit_ref) if exit_ref is not None else None
-        holding_days = resolve(item.get("holdingDays"))
-        entry_price = resolve(item.get("entryPrice"))
+        holding_days   = resolve(item.get("holdingDays"))
+        entry_price    = resolve(item.get("entryPrice"))
+        exit_price     = resolve(item.get("exitPrice"))
+        current_price  = resolve(item.get("currentPrice"))
+        shares         = resolve(item.get("shares"))
+        avg_cost       = resolve(item.get("avgCost"))
+        return_pct     = resolve(item.get("returnPct"))
+        realized_pnl   = resolve(item.get("realizedPnL"))
+        unrealized_pnl = resolve(item.get("unrealizedPnL"))
+        total_invested = resolve(item.get("totalInvested"))
+        status         = resolve(item.get("status", ""))
 
         # Validate
         if not code or not re.match(r"^\d{4,6}[A-Za-z]?$", str(code)):
@@ -88,13 +97,27 @@ def scrape_trade_records(etf_code):
             continue
         seen.add(key)
 
+        def _f(v):
+            return float(v) if isinstance(v, (int, float)) and v is not None else None
+        def _i(v):
+            return int(v) if isinstance(v, (int, float)) and v is not None else None
+
         trades.append({
             "code": str(code),
             "name": str(name) if name else "",
-            "entry_date": str(entry_date),
-            "exit_date": str(exit_date) if exit_date else None,
-            "holding_days": int(holding_days) if isinstance(holding_days, (int, float)) else None,
-            "entry_price": float(entry_price) if isinstance(entry_price, (int, float)) else None,
+            "entry_date":    str(entry_date),
+            "exit_date":     str(exit_date) if exit_date else None,
+            "holding_days":  _i(holding_days),
+            "entry_price":   _f(entry_price),
+            "exit_price":    _f(exit_price),
+            "current_price": _f(current_price),
+            "shares":        _i(shares),
+            "avg_cost":      _f(avg_cost),
+            "return_pct":    _f(return_pct),
+            "realized_pnl":  _f(realized_pnl),
+            "unrealized_pnl":_f(unrealized_pnl),
+            "total_invested":_f(total_invested),
+            "status":        str(status) if status else "",
         })
 
     trades.sort(key=lambda x: x["entry_date"])
@@ -120,19 +143,34 @@ def sync_trade_records(etf_code):
             cur.execute("""
                 INSERT INTO etf_trade_records
                     (etf_code, stock_code, stock_name, entry_date, exit_date,
-                     holding_days, entry_price)
-                VALUES (%s, %s, %s, %s, %s, %s, %s)
+                     holding_days, entry_price, exit_price, current_price,
+                     shares, avg_cost, return_pct, realized_pnl, unrealized_pnl,
+                     total_invested, status)
+                VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s)
                 ON CONFLICT (etf_code, stock_code, entry_date) DO UPDATE SET
-                    stock_name   = EXCLUDED.stock_name,
-                    exit_date    = EXCLUDED.exit_date,
-                    holding_days = EXCLUDED.holding_days,
-                    entry_price  = EXCLUDED.entry_price,
-                    scraped_at   = NOW()
+                    stock_name     = EXCLUDED.stock_name,
+                    exit_date      = EXCLUDED.exit_date,
+                    holding_days   = EXCLUDED.holding_days,
+                    entry_price    = EXCLUDED.entry_price,
+                    exit_price     = EXCLUDED.exit_price,
+                    current_price  = EXCLUDED.current_price,
+                    shares         = EXCLUDED.shares,
+                    avg_cost       = EXCLUDED.avg_cost,
+                    return_pct     = EXCLUDED.return_pct,
+                    realized_pnl   = EXCLUDED.realized_pnl,
+                    unrealized_pnl = EXCLUDED.unrealized_pnl,
+                    total_invested = EXCLUDED.total_invested,
+                    status         = EXCLUDED.status,
+                    scraped_at     = NOW()
             """, (
                 etf_code,
                 t["code"], t["name"],
                 t["entry_date"], t["exit_date"],
                 t["holding_days"], t["entry_price"],
+                t["exit_price"], t["current_price"],
+                t["shares"], t["avg_cost"],
+                t["return_pct"], t["realized_pnl"], t["unrealized_pnl"],
+                t["total_invested"], t["status"],
             ))
             if cur.rowcount > 0:
                 inserted += 1
@@ -158,21 +196,22 @@ def get_period_trade_changes(etf_code, period_start, period_end=None):
     conn = get_db()
     if not conn:
         return {"added": [], "removed": []}
+    _COLS = """stock_code, stock_name, entry_date, exit_date, holding_days,
+               entry_price, exit_price, current_price, shares,
+               return_pct, realized_pnl, unrealized_pnl, status"""
     try:
         cur = conn.cursor()
         # 新增（進場日在期間內）
-        cur.execute("""
-            SELECT stock_code, stock_name, entry_date, exit_date, holding_days, entry_price
-            FROM etf_trade_records
+        cur.execute(f"""
+            SELECT {_COLS} FROM etf_trade_records
             WHERE etf_code=%s AND entry_date >= %s AND entry_date <= %s
             ORDER BY entry_date
         """, (etf_code, str(period_start), str(period_end)))
         added_rows = cur.fetchall()
 
         # 清倉（出場日在期間內）
-        cur.execute("""
-            SELECT stock_code, stock_name, entry_date, exit_date, holding_days, entry_price
-            FROM etf_trade_records
+        cur.execute(f"""
+            SELECT {_COLS} FROM etf_trade_records
             WHERE etf_code=%s AND exit_date >= %s AND exit_date <= %s
             ORDER BY exit_date
         """, (etf_code, str(period_start), str(period_end)))
@@ -183,15 +222,29 @@ def get_period_trade_changes(etf_code, period_start, period_end=None):
     finally:
         conn.close()
 
+    def _f(v):
+        return float(v) if v is not None else None
+
     def row_to_dict(row, action):
+        realized = _f(row[10])
+        unrealized = _f(row[11])
+        pnl = realized if row[3] else unrealized  # 已出場用realized，持有中用unrealized
         return {
             "code": row[0], "name": row[1],
-            "entry_date": str(row[2]) if row[2] else None,
-            "exit_date": str(row[3]) if row[3] else None,
-            "holding_days": row[4],
-            "entry_price": float(row[5]) if row[5] else None,
+            "entry_date":    str(row[2]) if row[2] else None,
+            "exit_date":     str(row[3]) if row[3] else None,
+            "holding_days":  row[4],
+            "entry_price":   _f(row[5]),
+            "exit_price":    _f(row[6]),
+            "current_price": _f(row[7]),
+            "shares":        row[8],
+            "return_pct":    _f(row[9]),
+            "realized_pnl":  realized,
+            "unrealized_pnl":unrealized,
+            "pnl":           pnl,
+            "status":        row[12] or "",
             "type": "新增" if action == "add" else "清倉",
-            "shares": 0, "amount": "",
+            "shares_display": 0, "amount": "",
         }
 
     return {

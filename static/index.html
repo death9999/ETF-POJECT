@@ -1506,26 +1506,71 @@ async function openTradeHistory() {
       content.innerHTML = '<div class="empty-state">📭 尚無歷史記錄，請稍後再試</div>';
       return;
     }
+    const totalClosed = recs.filter(r => r.is_closed).length;
+    const totalOpen   = recs.length - totalClosed;
+    const totalPnl    = recs.reduce((s, r) => s + (r.pnl || 0), 0);
+    const pnlColor    = totalPnl >= 0 ? '#16a34a' : '#dc2626';
+    const pnlSign     = totalPnl >= 0 ? '+' : '';
+
+    const thS = 'padding:8px 10px;text-align:left;color:#495057;font-size:12px;border-bottom:2px solid #dee2e6;white-space:nowrap;background:#f8f9fa';
+    const tdS = 'padding:7px 10px;font-size:13px;color:#212529;border-bottom:1px solid #f1f3f5;vertical-align:top';
+
     const rows = recs.map(r => {
-      const statusColor = r.exit_date ? '#6c757d' : '#16a34a';
-      return '<tr style="color:#212529">' +
-        '<td style="font-family:monospace;font-weight:600;color:#212529">' + r.code + '</td>' +
-        '<td style="color:#212529">' + (r.name || '') + '</td>' +
-        '<td style="color:#212529">' + (r.entry_date || '—') + (r.entry_price ? '<br><small style="color:#6c757d">$' + r.entry_price + '</small>' : '') + '</td>' +
-        '<td style="color:#212529">' + (r.exit_date || '—') + '</td>' +
-        '<td style="color:#212529">' + (r.holding_days != null ? r.holding_days + '天' : '—') + '</td>' +
-        '<td style="color:' + statusColor + ';font-size:12px">' + r.status + '</td>' +
+      const isClosed = r.is_closed;
+      const retPct = r.return_pct;
+      const retColor = retPct == null ? '#6c757d' : retPct >= 0 ? '#16a34a' : '#dc2626';
+      const retStr = retPct != null ? (retPct >= 0 ? '+' : '') + retPct.toFixed(2) + '%' : '—';
+      const pnl = r.pnl;
+      const pnlC = pnl == null ? '#6c757d' : pnl >= 0 ? '#16a34a' : '#dc2626';
+      const pnlStr = pnl != null ? (pnl >= 0 ? '+' : '') + Math.round(pnl).toLocaleString() + '元' : '—';
+      const exitPriceCell = isClosed
+        ? (r.exit_price != null ? '$' + r.exit_price : '—')
+        : (r.current_price != null ? '<span style="color:#6c757d">現價 $' + r.current_price + '</span>' : '持有中');
+      const statusBadge = isClosed
+        ? '<span style="background:#f1f3f5;color:#6c757d;padding:2px 7px;border-radius:4px;font-size:11px">已出場</span>'
+        : '<span style="background:#f0fdf4;color:#16a34a;padding:2px 7px;border-radius:4px;font-size:11px">持有中</span>';
+      return '<tr>' +
+        '<td style="' + tdS + ';font-family:monospace;font-weight:600">' + r.code + '</td>' +
+        '<td style="' + tdS + '">' + (r.name || '') + '</td>' +
+        '<td style="' + tdS + '">' + (r.entry_date || '—') + (r.entry_price != null ? '<br><small style="color:#6c757d">$' + r.entry_price + '</small>' : '') + '</td>' +
+        '<td style="' + tdS + '">' + (r.exit_date || '—') + '<br><small>' + exitPriceCell + '</small></td>' +
+        '<td style="' + tdS + '">' + (r.holding_days != null ? r.holding_days + '天' : '—') + '</td>' +
+        '<td style="' + tdS + ';color:' + retColor + ';font-weight:600;text-align:right">' + retStr + '</td>' +
+        '<td style="' + tdS + ';color:' + pnlC + ';font-weight:600;text-align:right">' + pnlStr + '</td>' +
+        '<td style="' + tdS + '">' + statusBadge + '</td>' +
       '</tr>';
     }).join('');
-    content.innerHTML = '<div style="font-size:13px;color:#6c757d;margin-bottom:12px">共 ' + recs.length + ' 筆（含持有中）</div>' +
-      '<div class="table-wrap" style="border:1px solid #dee2e6;border-radius:8px;overflow:hidden"><table style="width:100%;border-collapse:collapse">' +
-      '<thead style="background:#f8f9fa"><tr>' +
-        '<th style="padding:8px 12px;text-align:left;color:#495057;font-size:13px;border-bottom:1px solid #dee2e6">代號</th>' +
-        '<th style="padding:8px 12px;text-align:left;color:#495057;font-size:13px;border-bottom:1px solid #dee2e6">名稱</th>' +
-        '<th style="padding:8px 12px;text-align:left;color:#495057;font-size:13px;border-bottom:1px solid #dee2e6">進場日/價</th>' +
-        '<th style="padding:8px 12px;text-align:left;color:#495057;font-size:13px;border-bottom:1px solid #dee2e6">出場日</th>' +
-        '<th style="padding:8px 12px;text-align:left;color:#495057;font-size:13px;border-bottom:1px solid #dee2e6">持有天</th>' +
-        '<th style="padding:8px 12px;text-align:left;color:#495057;font-size:13px;border-bottom:1px solid #dee2e6">狀態</th>' +
+
+    content.innerHTML =
+      '<div style="display:flex;gap:10px;margin-bottom:16px;flex-wrap:wrap">' +
+        '<div style="background:#f8f9fa;border-radius:8px;padding:10px 16px;text-align:center;min-width:80px">' +
+          '<div style="font-size:11px;color:#6c757d">總筆數</div>' +
+          '<div style="font-size:22px;font-weight:700;color:#212529">' + recs.length + '</div>' +
+        '</div>' +
+        '<div style="background:#f8f9fa;border-radius:8px;padding:10px 16px;text-align:center;min-width:80px">' +
+          '<div style="font-size:11px;color:#6c757d">已出場</div>' +
+          '<div style="font-size:22px;font-weight:700;color:#495057">' + totalClosed + '</div>' +
+        '</div>' +
+        '<div style="background:#f0fdf4;border-radius:8px;padding:10px 16px;text-align:center;min-width:80px">' +
+          '<div style="font-size:11px;color:#6c757d">持有中</div>' +
+          '<div style="font-size:22px;font-weight:700;color:#16a34a">' + totalOpen + '</div>' +
+        '</div>' +
+        '<div style="background:#f8f9fa;border-radius:8px;padding:10px 16px;text-align:center;flex:1;min-width:120px">' +
+          '<div style="font-size:11px;color:#6c757d">累計損益（已實現＋未實現）</div>' +
+          '<div style="font-size:22px;font-weight:700;color:' + pnlColor + '">' + pnlSign + Math.round(totalPnl).toLocaleString() + ' 元</div>' +
+        '</div>' +
+      '</div>' +
+      '<div style="overflow-x:auto">' +
+      '<table style="width:100%;border-collapse:collapse;min-width:620px;border:1px solid #dee2e6;border-radius:8px;overflow:hidden">' +
+      '<thead><tr>' +
+        '<th style="' + thS + '">代號</th>' +
+        '<th style="' + thS + '">名稱</th>' +
+        '<th style="' + thS + '">買入日 / 買入價</th>' +
+        '<th style="' + thS + '">賣出日 / 賣出價</th>' +
+        '<th style="' + thS + '">持有天</th>' +
+        '<th style="' + thS + ';text-align:right">報酬率</th>' +
+        '<th style="' + thS + ';text-align:right">損益</th>' +
+        '<th style="' + thS + '">狀態</th>' +
       '</tr></thead>' +
       '<tbody>' + rows + '</tbody></table></div>';
   } catch(e) {
