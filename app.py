@@ -1010,8 +1010,9 @@ def get_etf_changes(etf_code):
 @app.route("/api/etf/<etf_code>/changes/history", methods=["GET"])
 def get_etf_changes_history(etf_code):
     """
-    本週或本月個股進出記錄（trade-based），支援 offset 查歷史。
-    ?period=week|month  &offset=0（本期）|1（上期）|2（上上期）…
+    個股進出記錄（滾動視窗）。
+    week: 每次 7 天視窗；month: 每次 30 天視窗。
+    offset=0 為最近一期，offset=1 往前推一個視窗，以此類推。
     """
     etf_code = etf_code.upper()
     if etf_code not in ETF_CONFIG:
@@ -1025,60 +1026,37 @@ def get_etf_changes_history(etf_code):
     except ValueError:
         offset = 0
 
-    if period == "month":
-        # 計算目標月份（offset=0 為本月，offset=1 為上月…）
-        month_start = today.replace(day=1)
-        for _ in range(offset):
-            prev = month_start - _td(days=1)
-            month_start = prev.replace(day=1)
-        month_end = (month_start.replace(day=28) + _td(days=4))
-        month_end = month_end.replace(day=1) - _td(days=1)  # 月末
-        period_start = month_start
-        period_end = month_end if offset > 0 else today
-        period_label = f"{month_start.strftime('%Y/%m')}"
-    else:
-        # 計算目標週（offset=0 為本週，offset=1 為上週…）
-        monday = today - _td(days=today.weekday())
-        monday -= _td(weeks=offset)
-        sunday = monday + _td(days=6)
-        period_start = monday
-        period_end = sunday if offset > 0 else today
-        period_label = f"{monday.strftime('%m/%d')}~{period_end.strftime('%m/%d')}"
+    # 滾動視窗：week=7天，month=30天
+    window = _td(days=7) if period == "week" else _td(days=30)
+    period_end   = today - window * offset
+    period_start = period_end - window + _td(days=1)
 
-    # 先同步最新的交易記錄（背景）
+    if period == "week":
+        period_label = f"{period_start.strftime('%m/%d')}～{period_end.strftime('%m/%d')}"
+    else:
+        period_label = f"{period_start.strftime('%Y/%m/%d')}～{period_end.strftime('%m/%d')}"
+
+    # offset=0 時背景同步最新資料
     if offset == 0:
         threading.Thread(target=sync_trade_records, args=(etf_code,), daemon=True).start()
 
-    # 從 etf_trade_records 查詢期間進出
     result = get_period_trade_changes(etf_code, period_start, period_end)
     added   = result["added"]
     removed = result["removed"]
 
-    # 組成 changes 清單（符合前端 renderChanges 格式）
-    changes = []
-    for s in added:
-        changes.append({
+    def _fmt(s, action):
+        return {
             "code": s["code"], "name": s["name"],
             "shares": 0, "pct_change": 0,
-            "amount": f"進場 {s['entry_date']}",
-            "type": "新增",
-            "entry_date": s["entry_date"],
-            "exit_date": s.get("exit_date"),
-            "entry_price": s.get("entry_price"),
-        })
-    for s in removed:
-        changes.append({
-            "code": s["code"], "name": s["name"],
-            "shares": 0, "pct_change": 0,
-            "amount": f"出場 {s['exit_date']}",
-            "type": "刪除",
+            "type": "新增" if action == "add" else "刪除",
             "entry_date": s.get("entry_date"),
-            "exit_date": s.get("exit_date"),
+            "exit_date":  s.get("exit_date"),
             "holding_days": s.get("holding_days"),
-            "entry_price": s.get("entry_price"),
-        })
+            "entry_price":  s.get("entry_price"),
+        }
 
-    has_data = bool(added or removed)
+    changes = [_fmt(s, "add") for s in added] + [_fmt(s, "remove") for s in removed]
+    has_data = bool(changes)
 
     return jsonify({
         "success": True,
@@ -1087,7 +1065,7 @@ def get_etf_changes_history(etf_code):
         "period": period,
         "period_label": period_label,
         "period_start": period_start.isoformat(),
-        "period_end": period_end.isoformat(),
+        "period_end":   period_end.isoformat(),
         "offset": offset,
         "trade_mode": True,
         "has_data": has_data,
@@ -1098,6 +1076,53 @@ def get_etf_changes_history(etf_code):
             "buy_amount": 0.0, "sell_amount": 0.0,
             "changes": changes
         }] if has_data else []
+    })
+
+
+@app.route("/api/etf/<etf_code>/changes/all", methods=["GET"])
+def get_all_trade_history(etf_code):
+    """回傳該ETF自成立以來所有個股進出記錄，按進場日降冪排列。"""
+    etf_code = etf_code.upper()
+    if etf_code not in ETF_CONFIG:
+        return jsonify({"success": False, "error": f"不支援的ETF代號: {etf_code}"}), 404
+
+    # 確保資料最新
+    threading.Thread(target=sync_trade_records, args=(etf_code,), daemon=True).start()
+
+    conn = get_db()
+    if not conn:
+        return jsonify({"success": False, "error": "DB 連線失敗"}), 500
+    try:
+        cur = conn.cursor()
+        cur.execute("""
+            SELECT stock_code, stock_name, entry_date, exit_date, holding_days, entry_price
+            FROM etf_trade_records
+            WHERE etf_code = %s
+            ORDER BY entry_date DESC, stock_code
+        """, (etf_code,))
+        rows = cur.fetchall()
+    except Exception as e:
+        return jsonify({"success": False, "error": str(e)}), 500
+    finally:
+        conn.close()
+
+    records = []
+    for r in rows:
+        records.append({
+            "code": r[0], "name": r[1],
+            "entry_date": str(r[2]) if r[2] else None,
+            "exit_date":  str(r[3]) if r[3] else None,
+            "holding_days": r[4],
+            "entry_price":  float(r[5]) if r[5] else None,
+            "status": "持有中" if not r[3] else f"已出場（{r[4] or '?'}天）",
+        })
+
+    return jsonify({
+        "success": True,
+        "code": etf_code,
+        "name": ETF_CONFIG[etf_code]["name"],
+        "total": len(records),
+        "records": records,
     })
 
 
