@@ -1,0 +1,442 @@
+<!DOCTYPE html>
+<html lang="zh-TW">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>ETF 管理後台</title>
+<style>
+  *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+  :root {
+    --bg: #f8f9fa; --surface: #ffffff; --surface2: #f1f3f5;
+    --border: #dee2e6; --text: #212529; --text2: #6c757d;
+    --blue: #2563eb; --blue-bg: #eff6ff; --blue-text: #1d4ed8;
+    --red: #dc2626; --red-bg: #fef2f2; --green: #16a34a; --green-bg: #f0fdf4;
+    --radius: 8px; --radius-lg: 12px;
+  }
+  body { font-family: 'Segoe UI', 'Microsoft JhengHei', sans-serif; background: var(--bg); color: var(--text); min-height: 100vh; }
+  .container { max-width: 900px; margin: 0 auto; padding: 32px 20px; }
+  h1 { font-size: 22px; font-weight: 600; margin-bottom: 8px; }
+  .subtitle { font-size: 14px; color: var(--text2); margin-bottom: 28px; }
+
+  /* Login */
+  .login-card { background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius-lg); padding: 32px; max-width: 400px; margin: 80px auto; text-align: center; }
+  .login-card h2 { font-size: 18px; margin-bottom: 20px; }
+  .input { width: 100%; padding: 10px 14px; border: 1px solid var(--border); border-radius: var(--radius); font-size: 14px; outline: none; }
+  .input:focus { border-color: var(--blue); }
+  .btn { padding: 10px 20px; border-radius: var(--radius); border: none; font-size: 14px; cursor: pointer; font-weight: 500; transition: opacity .15s; }
+  .btn:hover { opacity: .85; }
+  .btn-primary { background: var(--blue); color: #fff; width: 100%; margin-top: 12px; }
+  .btn-danger  { background: var(--red);  color: #fff; }
+  .btn-success { background: var(--green); color: #fff; }
+  .btn-ghost   { background: var(--surface2); color: var(--text); border: 1px solid var(--border); }
+  .error-msg { color: var(--red); font-size: 13px; margin-top: 8px; }
+
+  /* Main layout */
+  .main { display: none; }
+  .card { background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius-lg); padding: 20px; margin-bottom: 20px; }
+  .card-title { font-size: 15px; font-weight: 600; margin-bottom: 16px; display: flex; align-items: center; gap: 8px; }
+
+  /* ETF list */
+  .etf-table { width: 100%; border-collapse: collapse; font-size: 14px; }
+  .etf-table th { text-align: left; font-size: 12px; font-weight: 600; color: var(--text2); padding: 8px 12px; border-bottom: 2px solid var(--border); }
+  .etf-table td { padding: 12px; border-bottom: 1px solid var(--border); vertical-align: middle; }
+  .etf-table tr:last-child td { border-bottom: none; }
+  .etf-table tr:hover td { background: var(--surface2); }
+  .code-tag { font-family: monospace; font-weight: 700; font-size: 13px; background: var(--blue-bg); color: var(--blue-text); padding: 3px 8px; border-radius: 4px; }
+  .status-ok  { color: var(--green); font-size: 12px; }
+  .status-err { color: var(--red);   font-size: 12px; }
+
+  /* Add form */
+  .add-form { display: grid; grid-template-columns: 1fr 2fr 1.5fr auto auto; gap: 10px; align-items: end; }
+  @media(max-width:700px) { .add-form { grid-template-columns: 1fr 1fr; } }
+  .form-group label { font-size: 12px; font-weight: 500; color: var(--text2); display: block; margin-bottom: 4px; }
+
+  /* Toast */
+  .toast { position: fixed; bottom: 24px; right: 24px; padding: 12px 20px; border-radius: var(--radius); font-size: 14px; font-weight: 500; color: #fff; opacity: 0; transition: opacity .3s; z-index: 999; }
+  .env-hint-box { display: none; }
+  .env-hint-box.show { display: block; background: #fefce8; border: 1px solid #fde047; border-radius: var(--radius-lg); padding: 16px; margin-top: 16px; }
+  .env-hint-box h4 { font-size: 14px; font-weight: 600; color: #854d0e; margin-bottom: 8px; }
+  .env-hint-box p { font-size: 13px; color: #713f12; margin-bottom: 10px; line-height: 1.6; }
+  .env-json-code { background: #1e293b; color: #e2e8f0; font-family: monospace; font-size: 12px; padding: 10px 12px; border-radius: var(--radius); word-break: break-all; margin-bottom: 10px; max-height: 80px; overflow-y: auto; }
+  .copy-btn { padding: 6px 14px; background: #854d0e; color: #fff; border: none; border-radius: var(--radius); font-size: 12px; cursor: pointer; }
+  .copy-btn:hover { background: #713f12; }
+  .env-steps { font-size: 12px; color: #713f12; line-height: 1.8; padding-left: 16px; }
+  .toast.show { opacity: 1; }
+  .toast.success { background: var(--green); }
+  .toast.error   { background: var(--red); }
+
+  /* 主題色同步 */
+  body, .card, .login-card { transition: background-color .3s, color .3s; }
+
+  /* Loading */
+  .spinner { width: 16px; height: 16px; border: 2px solid rgba(255,255,255,.4); border-top-color: #fff; border-radius: 50%; animation: spin .7s linear infinite; display: inline-block; margin-right: 6px; vertical-align: middle; }
+  @keyframes spin { to { transform: rotate(360deg); } }
+
+  /* Info panel */
+  .info-box { background: var(--blue-bg); border: 1px solid #bfdbfe; border-radius: var(--radius); padding: 12px 16px; font-size: 13px; color: var(--blue-text); margin-bottom: 20px; line-height: 1.7; }
+  .nav-link { font-size: 13px; color: var(--blue); text-decoration: none; }
+  .nav-link:hover { text-decoration: underline; }
+</style>
+</head>
+<body>
+
+<!-- 登入介面 -->
+<div class="login-card" id="login-panel">
+  <h2>🔐 ETF 管理後台</h2>
+  <p style="font-size:13px;color:var(--text2);margin-bottom:20px">請輸入管理密碼</p>
+  <input type="password" class="input" id="pwd-input" placeholder="管理密碼" onkeydown="if(event.key==='Enter')doLogin()">
+  <button class="btn btn-primary" onclick="doLogin()">登入</button>
+  <div class="error-msg" id="login-error"></div>
+</div>
+
+<!-- 主介面 -->
+<div class="container main" id="main-panel">
+  <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:4px">
+    <h1>📊 ETF 管理後台</h1>
+    <div style="display:flex;gap:10px;align-items:center">
+      <a href="/" class="nav-link">← 回主頁</a>
+      <button class="btn btn-ghost" onclick="doLogout()" style="font-size:13px;padding:6px 12px">登出</button>
+    </div>
+  </div>
+  <p class="subtitle">新增或刪除追蹤的主動式 ETF，變更立即生效</p>
+
+  <div class="info-box">
+    💡 所有 ETF 持股資料皆從 <strong>etfinfo.tw</strong> 自動抓取，無需手動設定爬蟲。<br>
+    新增/刪除後設定會<strong>自動同步到 Render</strong>，永久保存，無需手動操作。<br>
+    新增前建議先點「測試」確認 etfinfo.tw 支援該代號。
+  </div>
+
+  <!-- 目前追蹤的 ETF -->
+  <div class="card">
+    <div class="card-title">
+      目前追蹤的 ETF
+      <span id="etf-count" style="font-size:12px;font-weight:400;color:var(--text2)">載入中...</span>
+      <button class="btn btn-ghost" onclick="loadEtfList()" style="margin-left:auto;font-size:12px;padding:4px 10px">↻ 重新整理</button>
+    </div>
+    <div id="etf-list-wrap">
+      <div style="text-align:center;padding:32px;color:var(--text2)">載入中...</div>
+    </div>
+  </div>
+
+  <!-- 新增 ETF -->
+  <div class="card">
+    <div class="card-title">新增 ETF</div>
+    <div class="add-form">
+      <div class="form-group">
+        <label>ETF 代號 *</label>
+        <input type="text" class="input" id="new-code" placeholder="00981A" maxlength="10"
+          style="text-transform:uppercase"
+          oninput="this.value=this.value.toUpperCase()"
+          onblur="lookupEtf()">
+      </div>
+      <div class="form-group">
+        <label>名稱 <span style="color:var(--text2);font-weight:400">（自動帶入）</span></label>
+        <div style="position:relative">
+          <input type="text" class="input" id="new-name" placeholder="輸入代號後自動填入">
+          <span id="lookup-spinner" style="position:absolute;right:10px;top:50%;transform:translateY(-50%);display:none;color:var(--text2);font-size:12px">查詢中...</span>
+        </div>
+      </div>
+      <div class="form-group">
+        <label>投信公司 <span style="color:var(--text2);font-weight:400">（自動帶入）</span></label>
+        <input type="text" class="input" id="new-issuer" placeholder="自動帶入">
+      </div>
+      <div class="form-group">
+        <label>&nbsp;</label>
+        <button class="btn btn-ghost" onclick="testEtf()" id="test-btn">🔍 測試</button>
+      </div>
+      <div class="form-group">
+        <label>&nbsp;</label>
+        <button class="btn btn-primary" onclick="addEtf()" id="add-btn">＋ 新增</button>
+      </div>
+    </div>
+    <div id="test-result" style="margin-top:12px;font-size:13px;"></div>
+
+    <!-- 環境變數更新提示 -->
+    <div class="env-hint-box" id="env-hint-box">
+      <h4>⚠️ 需要更新 Render 環境變數才能永久保存</h4>
+      <p>新增/刪除 ETF 後，必須將以下設定貼到 Render 的環境變數，否則重新部署後會恢復原狀。</p>
+      <div class="env-json-code" id="env-json-display"></div>
+      <button class="copy-btn" onclick="copyEnvJson()">📋 複製環境變數值</button>
+      <p style="margin-top:10px;margin-bottom:4px;font-weight:600">更新步驟：</p>
+      <ol class="env-steps">
+        <li>點上方「複製環境變數值」</li>
+        <li>前往 <a href="https://dashboard.render.com" target="_blank" style="color:#1d4ed8">Render Dashboard</a> → etf-tracker-1 → <strong>Environment</strong></li>
+        <li>找到 <code style="background:#fef9c3;padding:1px 4px;border-radius:3px">ETF_LIST_JSON</code> 環境變數（若無則新增）</li>
+        <li>貼上複製的內容 → 點 <strong>Save Changes</strong></li>
+        <li>Render 會自動重新部署，完成後設定永久保留 ✓</li>
+      </ol>
+      <button class="btn" onclick="document.getElementById('env-hint-box').classList.remove('show')" style="margin-top:10px;font-size:12px;padding:5px 12px">✕ 關閉</button>
+    </div>
+  </div>
+</div>
+
+<div class="toast" id="toast"></div>
+
+<script>
+const API_BASE = location.origin + "/api";
+let adminPwd = "";
+
+// ── 主題同步（與主頁面共用 localStorage）──
+const THEME_KEY = "etf_theme_v1";
+function loadThemeAdmin() {
+  try {
+    const t = JSON.parse(localStorage.getItem(THEME_KEY));
+    if (!t) return;
+    const r = document.documentElement.style;
+    if (t.accent) { r.setProperty("--blue", t.accent); }
+    if (t.bg)     { document.body.style.background = t.bg; r.setProperty("--bg", t.bg); }
+    if (t.surface){ r.setProperty("--surface", t.surface); }
+    if (t.text)   { document.body.style.color = t.text; r.setProperty("--text", t.text); }
+    if (t.sidebar){ r.setProperty("--surface2", t.sidebar); }
+  } catch(e) {}
+}
+loadThemeAdmin();
+
+// ── 登入 ────────────────────────────────
+async function doLogin() {
+  const pwd = document.getElementById("pwd-input").value.trim();
+  if (!pwd) return;
+  try {
+    const r = await fetch(API_BASE + "/admin/etf/list", {
+      headers: { "X-Admin-Password": pwd }
+    });
+    if (r.status === 401) {
+      document.getElementById("login-error").textContent = "密碼錯誤，請再試";
+      return;
+    }
+    adminPwd = pwd;
+    document.getElementById("login-panel").style.display = "none";
+    document.getElementById("main-panel").style.display = "block";
+    loadEtfList();
+  } catch(e) {
+    document.getElementById("login-error").textContent = "連線失敗：" + e.message;
+  }
+}
+
+function doLogout() {
+  adminPwd = "";
+  document.getElementById("login-panel").style.display = "";
+  document.getElementById("main-panel").style.display = "none";
+  document.getElementById("pwd-input").value = "";
+}
+
+// ── 載入 ETF 清單 ────────────────────────
+async function loadEtfList() {
+  try {
+    const r = await fetch(API_BASE + "/admin/etf/list", {
+      headers: { "X-Admin-Password": adminPwd }
+    });
+    const json = await r.json();
+    if (!json.success) { showToast("載入失敗：" + json.error, "error"); return; }
+
+    const list = json.data;
+    document.getElementById("etf-count").textContent = `共 ${list.length} 檔`;
+
+    if (!list.length) {
+      document.getElementById("etf-list-wrap").innerHTML =
+        '<div style="text-align:center;padding:32px;color:var(--text2)">尚未追蹤任何 ETF</div>';
+      return;
+    }
+
+    document.getElementById("etf-list-wrap").innerHTML = `
+      <table class="etf-table">
+        <thead><tr><th>代號</th><th>名稱</th><th>投信</th><th>操作</th></tr></thead>
+        <tbody>
+          ${list.map(e => `
+            <tr>
+              <td><span class="code-tag">${e.code}</span></td>
+              <td>${e.name}</td>
+              <td style="color:var(--text2)">${e.issuer || "—"}</td>
+              <td>
+                <button class="btn btn-ghost" onclick="testExisting('${e.code}')"
+                  style="font-size:12px;padding:4px 10px;margin-right:6px">🔍 測試</button>
+                <button class="btn btn-danger" onclick="deleteEtf('${e.code}','${e.name}')"
+                  style="font-size:12px;padding:4px 10px">刪除</button>
+              </td>
+            </tr>`).join("")}
+        </tbody>
+      </table>`;
+  } catch(e) {
+    showToast("載入失敗：" + e.message, "error");
+  }
+}
+
+// ── 自動查詢 ETF 名稱 ───────────────────
+async function lookupEtf() {
+  const code = document.getElementById("new-code").value.trim().toUpperCase();
+  if (!code || code.length < 5) return;
+
+  const spinner = document.getElementById("lookup-spinner");
+  const nameInput = document.getElementById("new-name");
+  const issuerInput = document.getElementById("new-issuer");
+
+  spinner.style.display = "inline";
+  try {
+    const r = await fetch(`${API_BASE}/admin/etf/lookup/${code}`, {
+      headers: { "X-Admin-Password": adminPwd }
+    });
+    const json = await r.json();
+    if (json.success) {
+      if (json.name && !nameInput.value)   nameInput.value   = json.name;
+      if (json.issuer && !issuerInput.value) issuerInput.value = json.issuer;
+      if (!json.found) {
+        document.getElementById("test-result").innerHTML =
+          `<span style="color:var(--text2)">⚠️ 找不到此代號資料，請手動填寫名稱後再新增</span>`;
+      } else {
+        document.getElementById("test-result").innerHTML = "";
+      }
+    }
+  } catch(e) {
+    console.warn("lookup 失敗:", e.message);
+  } finally {
+    spinner.style.display = "none";
+  }
+}
+
+// ── 測試 ETF ────────────────────────────
+async function testEtf() {
+  const code = document.getElementById("new-code").value.trim().toUpperCase();
+  if (!code) { showToast("請輸入代號", "error"); return; }
+  const btn = document.getElementById("test-btn");
+  btn.innerHTML = '<span class="spinner"></span>測試中';
+  btn.disabled = true;
+  document.getElementById("test-result").innerHTML = "";
+  try {
+    const r = await fetch(`${API_BASE}/admin/etf/test/${code}`, {
+      headers: { "X-Admin-Password": adminPwd }
+    });
+    const json = await r.json();
+    if (json.success) {
+      document.getElementById("test-result").innerHTML =
+        `<span class="status-ok">✓ 最佳來源：<strong>${json.source}</strong>，共 ${json.holdings_count} 檔持股<br>` +
+        `前3檔：${json.top3.map(h => h.code + " " + h.name + " " + h.pct + "%").join("、")}</span>`;
+    } else {
+      document.getElementById("test-result").innerHTML =
+        `<span class="status-err">✗ 無法抓取：${json.error}</span>`;
+    }
+  } catch(e) {
+    document.getElementById("test-result").innerHTML =
+      `<span class="status-err">✗ 連線失敗：${e.message}</span>`;
+  } finally {
+    btn.innerHTML = "🔍 測試";
+    btn.disabled = false;
+  }
+}
+
+async function testExisting(code) {
+  showToast("測試 " + code + " 中...", "success");
+  try {
+    const r = await fetch(`${API_BASE}/admin/etf/test/${code}`, {
+      headers: { "X-Admin-Password": adminPwd }
+    });
+    const json = await r.json();
+    if (json.success) {
+      showToast(`${code} ✓ 共 ${json.holdings_count} 檔持股`, "success");
+    } else {
+      showToast(`${code} ✗ ${json.error}`, "error");
+    }
+  } catch(e) {
+    showToast("連線失敗：" + e.message, "error");
+  }
+}
+
+// ── 新增 ETF ────────────────────────────
+async function addEtf() {
+  const code   = document.getElementById("new-code").value.trim().toUpperCase();
+  const name   = document.getElementById("new-name").value.trim();
+  const issuer = document.getElementById("new-issuer").value.trim();
+  if (!code) { showToast("代號為必填", "error"); return; }
+
+  const btn = document.getElementById("add-btn");
+  btn.innerHTML = '<span class="spinner"></span>新增中';
+  btn.disabled = true;
+
+  try {
+    const r = await fetch(API_BASE + "/admin/etf/add", {
+      method: "POST",
+      headers: { "Content-Type": "application/json", "X-Admin-Password": adminPwd },
+      body: JSON.stringify({ code, name, issuer, password: adminPwd })
+    });
+    const json = await r.json();
+    if (json.success) {
+      const srcInfo = json.verified
+        ? `（${json.source} ✓ ${json.holdings_count}檔）`
+        : "（來源未驗證，仍可新增）";
+      const autoMsg = json.auto_updated ? " ✓ 已自動同步 Render" : "";
+      showToast(json.message + srcInfo + autoMsg, "success");
+      ["new-code","new-name","new-issuer"].forEach(id => document.getElementById(id).value = "");
+      document.getElementById("test-result").innerHTML = "";
+      if (json.env_hint && json.env_json) showEnvHint(json.env_json);
+      else document.getElementById("env-hint-box").classList.remove("show");
+      loadEtfList();
+    } else {
+      showToast("新增失敗：" + json.error, "error");
+    }
+  } catch(e) {
+    showToast("連線失敗：" + e.message, "error");
+  } finally {
+    btn.innerHTML = "＋ 新增";
+    btn.disabled = false;
+  }
+}
+
+// ── 刪除 ETF ────────────────────────────
+async function deleteEtf(code, name) {
+  if (!confirm(`確定要刪除 ${code} ${name}？\n此操作會立即生效，但可重新新增。`)) return;
+  try {
+    const r = await fetch(API_BASE + "/admin/etf/delete", {
+      method: "POST",
+      headers: { "Content-Type": "application/json", "X-Admin-Password": adminPwd },
+      body: JSON.stringify({ code, password: adminPwd })
+    });
+    const json = await r.json();
+    if (json.success) {
+      const autoMsg2 = json.auto_updated ? " ✓ 已自動同步 Render" : "";
+      showToast(json.message + autoMsg2, "success");
+      if (json.env_hint && json.env_json) showEnvHint(json.env_json);
+      else document.getElementById("env-hint-box").classList.remove("show");
+      loadEtfList();
+    } else {
+      showToast("刪除失敗：" + json.error, "error");
+    }
+  } catch(e) {
+    showToast("連線失敗：" + e.message, "error");
+  }
+}
+
+// ── 環境變數提示 ─────────────────────────
+let _currentEnvJson = "";
+
+function showEnvHint(envJson) {
+  _currentEnvJson = envJson;
+  const box = document.getElementById("env-hint-box");
+  const display = document.getElementById("env-json-display");
+  display.textContent = envJson;
+  box.classList.add("show");
+  box.scrollIntoView({ behavior: "smooth", block: "nearest" });
+}
+
+function copyEnvJson() {
+  navigator.clipboard.writeText(_currentEnvJson).then(() => {
+    showToast("已複製！請貼到 Render 的 ETF_LIST_JSON 環境變數", "success");
+  }).catch(() => {
+    const ta = document.createElement("textarea");
+    ta.value = _currentEnvJson;
+    document.body.appendChild(ta);
+    ta.select();
+    document.execCommand("copy");
+    document.body.removeChild(ta);
+    showToast("已複製！請貼到 Render 的 ETF_LIST_JSON 環境變數", "success");
+  });
+}
+
+// ── Toast 提示 ────────────────────────────
+function showToast(msg, type="success") {
+  const t = document.getElementById("toast");
+  t.textContent = msg;
+  t.className = `toast ${type} show`;
+  setTimeout(() => t.classList.remove("show"), 3000);
+}
+</script>
+</body>
+</html>

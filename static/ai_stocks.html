@@ -1,0 +1,457 @@
+<!DOCTYPE html>
+<html lang="zh-TW">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>AI 題材股調查 - ETF 追蹤器</title>
+<style>
+*,*::before,*::after{box-sizing:border-box;margin:0;padding:0}
+:root{--bg:#f8f9fa;--surface:#ffffff;--surface2:#f1f3f5;--border:#dee2e6;--text:#212529;--text2:#6c757d;--blue:#2563eb;--blue-bg:#eff6ff;--blue-text:#1d4ed8;--green:#16a34a;--green-bg:#f0fdf4;--red:#dc2626;--red-bg:#fef2f2;--amber:#d97706;--amber-bg:#fffbeb}
+body{font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;background:var(--bg);color:var(--text)}
+header{background:var(--surface);border-bottom:1px solid var(--border);padding:0 20px;position:sticky;top:0;z-index:100}
+.header-inner{max-width:1200px;margin:0 auto;display:flex;align-items:center;justify-content:space-between;height:56px}
+.header-title{font-size:18px;font-weight:700;color:var(--blue);text-decoration:none}
+.header-nav{display:flex;gap:8px}
+.header-nav a{padding:6px 14px;border-radius:6px;font-size:14px;text-decoration:none;color:var(--text2);transition:all .15s}
+.header-nav a:hover{background:var(--surface2);color:var(--text)}
+.header-nav a.active{background:var(--blue-bg);color:var(--blue-text);font-weight:600}
+main{max-width:1200px;margin:0 auto;padding:24px 20px}
+h1{font-size:22px;font-weight:700;margin-bottom:4px}
+.subtitle{color:var(--text2);font-size:14px;margin-bottom:16px}
+/* 分頁 Tab */
+.section-tabs{display:flex;gap:0;border-bottom:2px solid var(--border);margin-bottom:20px}
+.section-tab{padding:10px 24px;font-size:14px;font-weight:500;color:var(--text2);cursor:pointer;border:none;background:none;border-bottom:2px solid transparent;margin-bottom:-2px;transition:all .15s}
+.section-tab:hover{color:var(--blue)}
+.section-tab.active{color:var(--blue);border-bottom-color:var(--blue);font-weight:600}
+.section-panel{display:none}
+.section-panel.active{display:block}
+/* Toolbar */
+.toolbar{display:flex;align-items:center;gap:12px;flex-wrap:wrap;margin-bottom:16px}
+.toolbar-info{font-size:13px;color:var(--text2)}
+.toolbar-badge{display:inline-flex;align-items:center;gap:5px;background:var(--blue-bg);color:var(--blue-text);border-radius:5px;padding:4px 10px;font-size:12px;font-weight:500}
+.btn{padding:7px 14px;border-radius:7px;font-size:13px;font-weight:500;border:none;cursor:pointer;transition:all .15s}
+.btn-primary{background:var(--blue);color:#fff}
+.btn-primary:hover{background:#1d4ed8}
+/* Screener */
+.screener{background:var(--surface);border:1px solid var(--border);border-radius:10px;padding:14px 18px;margin-bottom:18px}
+.screener h3{font-size:13px;color:var(--text2);font-weight:600;margin-bottom:10px}
+.screener-row{display:flex;align-items:center;gap:12px;flex-wrap:wrap}
+.screener-field{display:flex;align-items:center;gap:6px;font-size:13px}
+.screener-field label{color:var(--text2);white-space:nowrap}
+.screener-input{width:90px;padding:5px 8px;border:1px solid var(--border);border-radius:6px;font-size:13px;background:var(--surface2)}
+.screener-input:focus{outline:none;border-color:var(--blue);box-shadow:0 0 0 2px rgba(37,99,235,.15)}
+.screener-count{margin-left:auto;font-size:13px;font-weight:600;color:var(--blue)}
+/* Tags */
+.tags{display:flex;flex-wrap:wrap;gap:8px;margin-bottom:20px}
+.tag-btn{padding:6px 14px;border-radius:20px;font-size:13px;border:1px solid var(--border);background:var(--surface);cursor:pointer;color:var(--text2);transition:all .15s}
+.tag-btn:hover{border-color:var(--blue);color:var(--blue)}
+.tag-btn.active{background:var(--blue);color:#fff;border-color:var(--blue)}
+/* Cards */
+.cards{display:grid;grid-template-columns:repeat(auto-fill,minmax(340px,1fr));gap:18px}
+.card{background:var(--surface);border:1px solid var(--border);border-radius:12px;padding:18px;transition:box-shadow .2s}
+.card:hover{box-shadow:0 4px 16px rgba(0,0,0,.08)}
+.card.screener-hidden{display:none}
+.card-header{display:flex;justify-content:space-between;align-items:flex-start;margin-bottom:10px}
+.card-rank{width:32px;height:32px;background:var(--blue);color:#fff;border-radius:50%;display:flex;align-items:center;justify-content:center;font-size:14px;font-weight:700;flex-shrink:0}
+.card-rank.rank-1{background:#f59e0b}
+.card-rank.rank-2{background:#9ca3af}
+.card-rank.rank-3{background:#cd7f32}
+.card-name{font-size:16px;font-weight:700}
+.card-code{font-size:13px;color:var(--text2)}
+.card-price{font-size:18px;font-weight:700;color:var(--blue)}
+.card-change{font-size:12px;margin-top:2px;text-align:right}
+.pos{color:var(--red)}.neg{color:var(--green)}
+.card-tags{display:flex;flex-wrap:wrap;gap:6px;margin-bottom:12px}
+.card-tag{padding:3px 10px;border-radius:12px;font-size:12px;font-weight:500;background:var(--blue-bg);color:var(--blue-text)}
+.card-tag.amber{background:var(--amber-bg);color:var(--amber)}
+.card-metrics{display:grid;grid-template-columns:1fr 1fr 1fr;gap:8px;margin-bottom:12px}
+.metric{background:var(--surface2);border-radius:8px;padding:8px 10px;text-align:center}
+.metric-label{font-size:11px;color:var(--text2);margin-bottom:3px}
+.metric-value{font-size:14px;font-weight:600}
+.metric-value.pos{color:var(--red)}.metric-value.neg{color:var(--green)}.metric-value.neutral{color:var(--text)}
+.card-reason{font-size:12px;color:var(--text2);background:var(--surface2);border-radius:6px;padding:8px;margin-bottom:12px;line-height:1.5}
+.card-links{display:flex;flex-wrap:wrap;gap:6px}
+.card-link{font-size:12px;color:var(--blue);text-decoration:none;padding:3px 8px;border:1px solid var(--blue-bg);border-radius:5px;background:var(--blue-bg)}
+.card-link:hover{background:var(--blue);color:#fff}
+.loading{text-align:center;padding:60px;color:var(--text2);font-size:15px}
+.winvest-badge{display:inline-block;font-size:10px;background:#e0f2fe;color:#0369a1;border-radius:3px;padding:1px 5px;margin-left:4px;vertical-align:middle}
+.profit-dot{width:8px;height:8px;border-radius:50%;display:inline-block;margin-right:4px;vertical-align:middle}
+.profit-pos{background:var(--green)}.profit-neg{background:var(--red)}.profit-warn{background:var(--amber)}
+.price-bar{height:4px;border-radius:2px;background:var(--blue-bg);margin:6px 0 10px}
+.price-fill{height:100%;border-radius:2px;background:var(--blue)}
+</style>
+</head>
+<body>
+<header>
+  <div class="header-inner">
+    <a href="/" class="header-title">📊 ETF 追蹤器</a>
+    <nav class="header-nav">
+      <a href="/">🏠 總覽</a>
+      <a href="/ai-stocks" class="active">🤖 AI 題材股</a>
+    </nav>
+  </div>
+</header>
+<main>
+  <h1>🤖 AI 題材股調查</h1>
+  <p class="subtitle">每週精選 AI 概念股，追蹤基本面與市場動態</p>
+
+  <!-- 分頁 Tab -->
+  <div class="section-tabs">
+    <button class="section-tab active" data-tab="picks">⭐ AI 精選股 <span id="picksCount" style="font-size:12px;background:var(--blue-bg);color:var(--blue-text);border-radius:10px;padding:1px 8px;margin-left:4px"></span></button>
+    <button class="section-tab" data-tab="cheap">💰 低價題材股 <span style="font-size:12px;background:var(--amber-bg);color:var(--amber);border-radius:10px;padding:1px 8px;margin-left:4px">Top 20</span></button>
+  </div>
+
+  <!-- ── 精選股 Panel ── -->
+  <div class="section-panel active" id="panel-picks">
+    <div class="toolbar">
+      <span class="toolbar-info" id="weekInfo"></span>
+      <span class="toolbar-info" id="updateInfo"></span>
+      <span class="toolbar-badge">📅 基本面每週五 18:00 更新</span>
+      <span class="toolbar-badge" id="winvestBadge" style="display:none;background:#e0f2fe;color:#0369a1">⚡ winvest.tw 補充中...</span>
+      <button class="btn btn-primary" onclick="location.reload()">↻ 重新整理</button>
+    </div>
+    <div class="screener">
+      <h3>📐 策選條件（低於下方閾值才顯示）</h3>
+      <div class="screener-row">
+        <div class="screener-field"><label>股價 ≤</label><input class="screener-input" id="sc-price" type="number" placeholder="不限"><span>元</span></div>
+        <div class="screener-field"><label>EPS(TTM) ≥</label><input class="screener-input" id="sc-eps" type="number" placeholder="不限"><span>元</span></div>
+        <div class="screener-field"><label>ROE ≥</label><input class="screener-input" id="sc-roe" type="number" placeholder="不限"><span>%</span></div>
+        <div class="screener-field"><label>本益比 ≤</label><input class="screener-input" id="sc-pe" type="number" placeholder="不限"></div>
+        <span class="screener-count" id="screenerCount"></span>
+      </div>
+    </div>
+    <div class="tags" id="tagContainer"></div>
+    <div class="cards" id="cardContainer"><div class="loading">⏳ 載入中...</div></div>
+  </div>
+
+  <!-- ── 低價題材股 Panel ── -->
+  <div class="section-panel" id="panel-cheap">
+    <div class="toolbar">
+      <span class="toolbar-badge" style="background:var(--amber-bg);color:var(--amber)">💰 股價由低到高，即時從 winvest.tw 抓取</span>
+      <span class="toolbar-badge" id="cheapBadge" style="display:none;background:#e0f2fe;color:#0369a1">⚡ 資料載入中...</span>
+    </div>
+    <div class="cards" id="cheapContainer"><div class="loading">⏳ 點擊此頁後自動載入...</div></div>
+  </div>
+</main>
+
+<script>
+// ═══════════════════════════════════════
+// 低價題材股候選清單
+// ═══════════════════════════════════════
+const CHEAP_STOCKS = [
+  {code:'2314',name:'台揚',tag:'網通/衛星'},
+  {code:'2332',name:'友訊',tag:'AI網路設備'},
+  {code:'6116',name:'彩晶',tag:'AI顯示面板'},
+  {code:'2331',name:'精英',tag:'AI主機板'},
+  {code:'2409',name:'友達',tag:'AI顯示器'},
+  {code:'2352',name:'佳世達',tag:'AI醫療顯示'},
+  {code:'2353',name:'宏碁',tag:'AI PC'},
+  {code:'2324',name:'仁寶',tag:'AI筆電ODM'},
+  {code:'2365',name:'昆盈',tag:'周邊設備'},
+  {code:'2489',name:'瑞軒',tag:'AI智慧電視'},
+  {code:'4906',name:'正文',tag:'AI基地台'},
+  {code:'3701',name:'大眾控',tag:'AI資安'},
+  {code:'2328',name:'廣宇',tag:'AI伺服器PCB'},
+  {code:'2354',name:'鴻準',tag:'AI機構散熱'},
+  {code:'6269',name:'台郡',tag:'AI軟板FPC'},
+  {code:'2363',name:'矽統',tag:'AI晶片設計'},
+  {code:'2367',name:'燿華',tag:'PCB'},
+  {code:'2356',name:'英業達',tag:'AI伺服器ODM'},
+  {code:'5371',name:'中光電',tag:'光電'},
+  {code:'3338',name:'泰碩',tag:'AI散熱模組'},
+  {code:'5469',name:'瀚宇博',tag:'AI PCB'},
+  {code:'4938',name:'和碩',tag:'AI伺服器'},
+  {code:'3706',name:'神達',tag:'AI伺服器'},
+  {code:'3045',name:'台灣大',tag:'電信雲端'},
+  {code:'6230',name:'尼得科超眾',tag:'AI散熱'},
+  {code:'2412',name:'中華電',tag:'電信雲端'},
+  {code:'2303',name:'聯電',tag:'AI晶圓代工'},
+  {code:'2344',name:'華邦電',tag:'DRAM'},
+  {code:'2337',name:'旺宏',tag:'NOR Flash'},
+  {code:'2317',name:'鴻海',tag:'AI伺服器/GB200'},
+];
+
+// ═══════════════════════════════════════
+// 精選股相關
+// ═══════════════════════════════════════
+let allPicks = [];
+let activeTag = 'all';
+let winvestData = {};
+
+async function fetchWinvestEPS(code) {
+  try {
+    const res = await fetch('/api/winvest-eps/' + code);
+    if (!res.ok) return {};
+    const data = await res.json();
+    if (!data.success) return {};
+    return {
+      winvest_price: data.price,
+      winvest_change: data.change,
+      winvest_change_rate: data.change_rate,
+      winvest_eps_ttm: data.eps_quarterly,
+      winvest_eps_annual: data.eps_annual
+    };
+  } catch(e) { return {}; }
+}
+
+function fmt(v, suffix='', d=2) {
+  if (v === null || v === undefined) return '-';
+  const n = parseFloat(v);
+  if (isNaN(n)) return '-';
+  return n.toFixed(d) + suffix;
+}
+
+function cleanReason(r) {
+  if (!r || r.indexOf('None') >= 0) return null;
+  return r;
+}
+
+function renderCards() {
+  const container = document.getElementById('cardContainer');
+  const priceMax = parseFloat(document.getElementById('sc-price').value);
+  const epsMin   = parseFloat(document.getElementById('sc-eps').value);
+  const roeMin   = parseFloat(document.getElementById('sc-roe').value);
+  const peMax    = parseFloat(document.getElementById('sc-pe').value);
+  let visible = 0;
+  container.innerHTML = '';
+  const filtered = activeTag === 'all' ? allPicks : allPicks.filter(p => p.tags && p.tags.includes(activeTag));
+  for (const p of filtered) {
+    const wv = winvestData[p.code] || {};
+    const price  = p.price   || wv.winvest_price;
+    const epsTtm = p.eps_ttm != null ? p.eps_ttm : wv.winvest_eps_ttm;
+    const roe = p.roe; const pe = p.pe_ratio;
+    let hide = false;
+    if (!isNaN(priceMax) && price  != null && price  > priceMax) hide = true;
+    if (!isNaN(epsMin)   && epsTtm != null && epsTtm < epsMin)   hide = true;
+    if (!isNaN(roeMin)   && roe    != null && roe    < roeMin)    hide = true;
+    if (!isNaN(peMax)    && pe     != null && pe     > peMax)     hide = true;
+    if (!hide) visible++;
+    const change = p.change_val || wv.winvest_change;
+    const changePct = p.change_pct || wv.winvest_change_rate;
+    const chCls  = (change >= 0) ? 'pos' : 'neg';
+    const chSign = (change >= 0) ? '+' : '';
+    const reason = cleanReason(p.reason);
+    const rankCls = p.rank <= 3 ? ' rank-'+p.rank : '';
+    const tagsHtml = (p.tags||[]).map(t=>'<span class="card-tag">'+t+'</span>').join('');
+    const linksHtml = (p.sources||[]).map(s=>'<a class="card-link" href="'+s.url+'" target="_blank">'+s.label+'</a>').join('');
+    const epsDisplay = epsTtm != null ? fmt(epsTtm,' 元') : '-';
+    const epsSrc = (epsTtm != null && p.eps_ttm == null) ? '<span class="winvest-badge">winvest</span>' : '';
+    const epsAnnual = (winvestData[p.code]||{}).winvest_eps_annual;
+    const card = document.createElement('div');
+    card.className = 'card' + (hide ? ' screener-hidden' : '');
+    card.dataset.code = p.code;
+    card.innerHTML =
+      '<div class="card-header">'+
+        '<div style="display:flex;align-items:center;gap:10px">'+
+          '<div class="card-rank'+rankCls+'">'+p.rank+'</div>'+
+          '<div><div class="card-name">'+p.name+'</div><div class="card-code">'+p.code+'</div></div>'+
+        '</div>'+
+        '<div style="text-align:right">'+
+          '<div class="card-price">'+(price!=null?'$'+price.toFixed(1):'-')+'</div>'+
+          '<div class="card-change '+chCls+'">'+(change!=null?chSign+change.toFixed(2)+' ('+chSign+(changePct||0).toFixed(2)+'%)':'')+'</div>'+
+        '</div>'+
+      '</div>'+
+      '<div class="card-tags">'+tagsHtml+'</div>'+
+      '<div class="card-metrics">'+
+        '<div class="metric"><div class="metric-label">EPS季(TTM)'+epsSrc+'</div><div class="metric-value neutral">'+epsDisplay+'</div></div>'+
+        '<div class="metric"><div class="metric-label">全年EPS<span class="winvest-badge">winvest</span></div><div class="metric-value neutral">'+(epsAnnual!=null?fmt(epsAnnual,' 元'):'-')+'</div></div>'+
+        '<div class="metric"><div class="metric-label">EPS成長</div><div class="metric-value '+(p.eps_growth_pct>0?'pos':p.eps_growth_pct<0?'neg':'neutral')+'">'+fmt(p.eps_growth_pct,'%')+'</div></div>'+
+        '<div class="metric"><div class="metric-label">ROE</div><div class="metric-value '+(roe>15?'pos':roe<5?'neg':'neutral')+'">'+fmt(roe,'%')+'</div></div>'+
+        '<div class="metric"><div class="metric-label">本益比</div><div class="metric-value neutral">'+fmt(pe,' 倍')+'</div></div>'+
+        '<div class="metric"><div class="metric-label">淨利率</div><div class="metric-value neutral">'+fmt(p.net_margin,'%')+'</div></div>'+
+      '</div>'+
+      (reason?'<div class="card-reason">💡 '+reason+'</div>':'')+
+      '<div class="card-links">'+linksHtml+'<a class="card-link" href="https://winvest.tw/Stock/Symbol/Comment/'+p.code+'" target="_blank">📊 winvest</a></div>';
+    container.appendChild(card);
+  }
+  const total = filtered.length;
+  document.getElementById('screenerCount').textContent =
+    (isNaN(priceMax)&&isNaN(epsMin)&&isNaN(roeMin)&&isNaN(peMax))
+    ? '共 '+total+' 支' : '第 '+visible+' / '+total+' 支符合條件';
+}
+
+function buildTags() {
+  const tagCount = {};
+  for (const p of allPicks) for (const t of (p.tags||[])) tagCount[t]=(tagCount[t]||0)+1;
+  const c = document.getElementById('tagContainer');
+  c.innerHTML = '';
+  const allBtn = document.createElement('button');
+  allBtn.className = 'tag-btn active';
+  allBtn.textContent = '全部 ('+allPicks.length+')';
+  allBtn.addEventListener('click', function(){ setFilter('all', allBtn); });
+  c.appendChild(allBtn);
+  for (const [tag, cnt] of Object.entries(tagCount)) {
+    const btn = document.createElement('button');
+    btn.className = 'tag-btn';
+    btn.textContent = tag+' ('+cnt+')';
+    btn.addEventListener('click', function(){ setFilter(tag, btn); });
+    c.appendChild(btn);
+  }
+}
+
+function setFilter(tag, btn) {
+  activeTag = tag;
+  document.querySelectorAll('.tag-btn').forEach(function(b){ b.classList.remove('active'); });
+  btn.classList.add('active');
+  renderCards();
+}
+
+['sc-price','sc-eps','sc-roe','sc-pe'].forEach(function(id){
+  document.getElementById(id).addEventListener('input', renderCards);
+});
+
+async function loadPicksData() {
+  try {
+    const res = await fetch('/api/ai-stocks');
+    if (res.status === 401) { location.href = '/login'; return; }
+    const data = await res.json();
+    allPicks = data.picks || [];
+    document.getElementById('picksCount').textContent = allPicks.length;
+    document.getElementById('weekInfo').textContent = '本週起始：'+(data.week_start||'');
+    document.getElementById('updateInfo').textContent = '更新：'+(data.updated_at||'').substring(0,16);
+    buildTags();
+    renderCards();
+    const badge = document.getElementById('winvestBadge');
+    badge.style.display = '';
+    let fetched = 0;
+    for (const p of allPicks) {
+      fetchWinvestEPS(p.code).then(function(wv){
+        winvestData[p.code] = wv;
+        fetched++;
+        if (fetched === allPicks.length) {
+          badge.textContent = '✅ winvest.tw 資料已補充';
+          setTimeout(function(){ badge.style.display='none'; }, 3000);
+        }
+        renderCards();
+      });
+    }
+  } catch(e) {
+    document.getElementById('cardContainer').innerHTML = '<div class="loading">載入失敗，請重試</div>';
+  }
+}
+
+// ═══════════════════════════════════════
+// 低價題材股
+// ═══════════════════════════════════════
+let cheapLoaded = false;
+
+async function loadCheapStocks() {
+  if (cheapLoaded) return;
+  const container = document.getElementById('cheapContainer');
+  const badge = document.getElementById('cheapBadge');
+  badge.style.display = '';
+  container.innerHTML = '<div class="loading">⏳ 從 winvest.tw 抓取即時資料中...</div>';
+
+  // 批次抓取所有候選股
+  const results = [];
+  for (const s of CHEAP_STOCKS) {
+    try {
+      const res = await fetch('/api/winvest-eps/' + s.code);
+      const data = await res.json();
+      if (data.success && data.price) {
+        results.push({
+          code: s.code,
+          name: data.name || s.name,
+          tag: s.tag,
+          price: data.price,
+          change: data.change,
+          change_rate: data.change_rate,
+          eps_q: data.eps_quarterly,
+          eps_y: data.eps_annual
+        });
+      }
+    } catch(e) {}
+  }
+
+  // 依股價由低到高排序，取前 20
+  results.sort(function(a,b){ return a.price - b.price; });
+  const top20 = results.slice(0, 20);
+  const maxPrice = top20[top20.length-1]?.price || 1;
+
+  cheapLoaded = true;
+  badge.textContent = '✅ 已載入 '+top20.length+' 支低價題材股';
+  setTimeout(function(){ badge.style.display='none'; }, 3000);
+
+  container.innerHTML = '';
+  top20.forEach(function(s, i) {
+    const chg = s.change || 0;
+    const chgPct = s.change_rate || 0;
+    const chCls  = chg >= 0 ? 'pos' : 'neg';
+    const chSign = chg >= 0 ? '+' : '';
+    const hasProfit = s.eps_y !== null && s.eps_y > 0;
+    const isLoss    = s.eps_y !== null && s.eps_y < 0;
+    const profitDot = isLoss ? '<span class="profit-dot profit-neg"></span>' :
+                      (hasProfit ? '<span class="profit-dot profit-pos"></span>' :
+                      '<span class="profit-dot profit-warn"></span>');
+    const profitLabel = isLoss ? '虧損' : (hasProfit ? '獲利' : '持平');
+    const pct = Math.round((s.price / maxPrice) * 100);
+    const rankCls = i < 3 ? ' rank-'+(i+1) : '';
+
+    const card = document.createElement('div');
+    card.className = 'card';
+    card.innerHTML =
+      '<div class="card-header">'+
+        '<div style="display:flex;align-items:center;gap:10px">'+
+          '<div class="card-rank'+rankCls+'">'+(i+1)+'</div>'+
+          '<div>'+
+            '<div class="card-name">'+s.name+'</div>'+
+            '<div class="card-code">'+s.code+'</div>'+
+          '</div>'+
+        '</div>'+
+        '<div style="text-align:right">'+
+          '<div class="card-price">$'+s.price.toFixed(1)+'</div>'+
+          '<div class="card-change '+chCls+'">'+chSign+chg.toFixed(2)+' ('+chSign+chgPct.toFixed(2)+'%)</div>'+
+        '</div>'+
+      '</div>'+
+      '<div class="price-bar"><div class="price-fill" style="width:'+pct+'%"></div></div>'+
+      '<div class="card-tags">'+
+        '<span class="card-tag amber">'+s.tag+'</span>'+
+        '<span class="card-tag" style="background:#f0fdf4;color:#16a34a">'+profitDot+profitLabel+'</span>'+
+      '</div>'+
+      '<div class="card-metrics">'+
+        '<div class="metric">'+
+          '<div class="metric-label">最新季EPS</div>'+
+          '<div class="metric-value '+(s.eps_q>0?'pos':s.eps_q<0?'neg':'neutral')+'">'+
+            (s.eps_q!==null ? s.eps_q.toFixed(2)+' 元' : '-')+
+          '</div>'+
+        '</div>'+
+        '<div class="metric">'+
+          '<div class="metric-label">2025全年EPS<span class="winvest-badge">winvest</span></div>'+
+          '<div class="metric-value '+(s.eps_y>0?'pos':s.eps_y<0?'neg':'neutral')+'">'+
+            (s.eps_y!==null ? s.eps_y.toFixed(2)+' 元' : '-')+
+          '</div>'+
+        '</div>'+
+        '<div class="metric">'+
+          '<div class="metric-label">本益比(估)</div>'+
+          '<div class="metric-value neutral">'+
+            (s.eps_y && s.eps_y > 0 ? (s.price/s.eps_y).toFixed(1)+' 倍' : '-')+
+          '</div>'+
+        '</div>'+
+      '</div>'+
+      '<div class="card-links">'+
+        '<a class="card-link" href="https://tw.stock.yahoo.com/quote/'+s.code+'" target="_blank">📈 Yahoo Finance</a>'+
+        '<a class="card-link" href="https://winvest.tw/Stock/Symbol/Comment/'+s.code+'" target="_blank">📊 winvest</a>'+
+      '</div>';
+    container.appendChild(card);
+  });
+}
+
+// ═══════════════════════════════════════
+// Tab 切換
+// ═══════════════════════════════════════
+document.querySelectorAll('.section-tab').forEach(function(tab) {
+  tab.addEventListener('click', function() {
+    document.querySelectorAll('.section-tab').forEach(function(t){ t.classList.remove('active'); });
+    document.querySelectorAll('.section-panel').forEach(function(p){ p.classList.remove('active'); });
+    tab.classList.add('active');
+    const panelId = 'panel-' + tab.dataset.tab;
+    document.getElementById(panelId).classList.add('active');
+    if (tab.dataset.tab === 'cheap') loadCheapStocks();
+  });
+});
+
+// 啟動
+loadPicksData();
+</script>
+</body>
+</html>

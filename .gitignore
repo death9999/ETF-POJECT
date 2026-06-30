@@ -1,0 +1,64 @@
+# Python
+__pycache__/
+*.py[cod]
+*.pyo
+*.pyd
+.Python
+*.egg
+*.egg-info/
+dist/
+build/
+.eggs/
+
+# 虛擬環境
+.venv/
+venv/
+env/
+ENV/
+.env
+
+# 機密與環境變數
+.env*
+*.secret
+*.key
+*.pem
+*.pfx
+credentials.json
+secrets.json
+
+# ETF 動態設定（含爬蟲來源偵測結果，勿提交）
+etf_config.json
+
+# uv 環境（本機快取）
+.python-version
+uv.lock
+
+# Claude Code 本機設定
+.claude/
+
+# macOS
+.DS_Store
+.AppleDouble
+.LSOverride
+
+# Windows
+Thumbs.db
+ehthumbs.db
+desktop.ini
+
+# IDE
+.idea/
+.vscode/settings.json
+*.swp
+*.swo
+
+# 暫存 / 測試殘留
+*.tmp
+*.bak
+*.log
+test_*.py
+playwright-report/
+test-results/
+
+# Render 部署（不需要提交）
+.render/

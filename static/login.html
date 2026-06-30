@@ -1,0 +1,282 @@
+<!DOCTYPE html>
+<html lang="zh-TW">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>登入 - 主動式ETF持股追蹤器</title>
+<style>
+  *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+  body {
+    font-family: 'Segoe UI', 'Microsoft JhengHei', sans-serif;
+    background: #0f172a; color: #f1f5f9;
+    min-height: 100vh; display: flex; align-items: center; justify-content: center;
+  }
+  .card {
+    background: #1e293b; border: 1px solid #334155;
+    border-radius: 16px; padding: 40px 36px;
+    width: 100%; max-width: 420px;
+    box-shadow: 0 20px 60px rgba(0,0,0,.4);
+  }
+  .logo { text-align: center; margin-bottom: 28px; }
+  .logo-icon { font-size: 40px; margin-bottom: 8px; }
+  .logo h1 { font-size: 20px; font-weight: 700; }
+  .logo p  { font-size: 13px; color: #94a3b8; margin-top: 4px; }
+
+  /* Tabs */
+  .tabs { display: flex; background: #0f172a; border-radius: 8px; padding: 3px; margin-bottom: 20px; }
+  .tab-btn { flex: 1; padding: 8px; border: none; background: transparent; color: #94a3b8; font-size: 13px; font-weight: 500; cursor: pointer; border-radius: 6px; transition: all .15s; }
+  .tab-btn.active { background: #334155; color: #f1f5f9; }
+
+  .panel { display: none; }
+  .panel.active { display: block; }
+
+  .form-group { margin-bottom: 14px; }
+  .form-group label { display: block; font-size: 13px; font-weight: 500; color: #94a3b8; margin-bottom: 5px; }
+  .input {
+    width: 100%; padding: 11px 14px; background: #0f172a;
+    border: 1px solid #334155; border-radius: 8px;
+    color: #f1f5f9; font-size: 14px; outline: none; transition: border-color .2s;
+  }
+  .input:focus { border-color: #6366f1; }
+  .row { display: flex; align-items: center; justify-content: space-between; margin-bottom: 14px; }
+  .checkbox-label { display: flex; align-items: center; gap: 6px; font-size: 13px; color: #94a3b8; cursor: pointer; }
+  .checkbox-label input { accent-color: #6366f1; width: 14px; height: 14px; }
+  .link-btn { background: none; border: none; color: #6366f1; font-size: 13px; cursor: pointer; padding: 0; }
+  .link-btn:hover { text-decoration: underline; }
+
+  .btn-submit {
+    width: 100%; padding: 12px; background: #6366f1; color: #fff;
+    border: none; border-radius: 8px; font-size: 15px; font-weight: 600;
+    cursor: pointer; transition: background .15s;
+  }
+  .btn-submit:hover { background: #4f46e5; }
+  .btn-submit:disabled { opacity: .6; cursor: not-allowed; }
+
+  .msg { border-radius: 8px; padding: 10px 14px; font-size: 13px; margin-bottom: 14px; display: none; }
+  .msg.show { display: block; }
+  .msg.error   { background: #450a0a; border: 1px solid #7f1d1d; color: #fca5a5; }
+  .msg.success { background: #052e16; border: 1px solid #14532d; color: #86efac; }
+
+  .spinner { display: inline-block; width: 14px; height: 14px; border: 2px solid rgba(255,255,255,.3); border-top-color: #fff; border-radius: 50%; animation: spin .7s linear infinite; margin-right: 6px; vertical-align: middle; }
+  @keyframes spin { to { transform: rotate(360deg); } }
+  .divider { text-align: center; color: #475569; font-size: 12px; margin: 14px 0; }
+
+  /* Modal */
+  .modal-bg { position: fixed; inset: 0; background: rgba(0,0,0,.6); z-index: 100; display: none; align-items: center; justify-content: center; }
+  .modal-bg.show { display: flex; }
+  .modal { background: #1e293b; border: 1px solid #334155; border-radius: 12px; padding: 28px; width: 360px; }
+  .modal h3 { font-size: 16px; margin-bottom: 16px; }
+  .modal-footer { display: flex; gap: 8px; margin-top: 16px; }
+  .btn-cancel { flex: 1; padding: 10px; background: #334155; color: #f1f5f9; border: none; border-radius: 8px; cursor: pointer; font-size: 14px; }
+</style>
+</head>
+<body>
+<div class="card">
+  <div class="logo">
+    <div class="logo-icon">📊</div>
+    <h1>主動式ETF持股追蹤器</h1>
+    <p id="subtitle">請登入以繼續</p>
+  </div>
+
+  <!-- 頁籤 -->
+  <div class="tabs">
+    <button class="tab-btn active" onclick="switchTab('login')">登入</button>
+    <button class="tab-btn" onclick="switchTab('register')">註冊帳號</button>
+  </div>
+
+  <!-- 訊息 -->
+  <div class="msg error"   id="err-msg"></div>
+  <div class="msg success" id="ok-msg"></div>
+
+  <!-- 登入表單 -->
+  <div class="panel active" id="panel-login">
+    <div class="form-group">
+      <label>帳號</label>
+      <input type="text" class="input" id="login-user" placeholder="admin" autocomplete="username" onkeydown="if(event.key==='Enter')doLogin()">
+    </div>
+    <div class="form-group">
+      <label>密碼</label>
+      <input type="password" class="input" id="login-pwd" placeholder="••••••••" autocomplete="current-password" onkeydown="if(event.key==='Enter')doLogin()">
+    </div>
+    <div class="row">
+      <label class="checkbox-label">
+        <input type="checkbox" id="remember-me"> 記住我（30天）
+      </label>
+      <button class="link-btn" onclick="showForgotModal()">忘記密碼？</button>
+    </div>
+    <button class="btn-submit" id="login-btn" onclick="doLogin()">登入</button>
+  </div>
+
+  <!-- 註冊表單 -->
+  <div class="panel" id="panel-register">
+    <div class="form-group">
+      <label>帳號</label>
+      <input type="text" class="input" id="reg-user" placeholder="請輸入帳號" autocomplete="username">
+    </div>
+    <div class="form-group">
+      <label>密碼</label>
+      <input type="password" class="input" id="reg-pwd" placeholder="至少 6 個字元" autocomplete="new-password">
+    </div>
+    <div class="form-group">
+      <label>確認密碼</label>
+      <input type="password" class="input" id="reg-pwd2" placeholder="再輸入一次密碼" autocomplete="new-password" onkeydown="if(event.key==='Enter')doRegister()">
+    </div>
+    <button class="btn-submit" id="reg-btn" onclick="doRegister()">建立帳號</button>
+  </div>
+</div>
+
+<!-- 忘記密碼 Modal -->
+<div class="modal-bg" id="forgot-modal">
+  <div class="modal">
+    <h3>🔑 重設密碼</h3>
+    <p style="font-size:13px;color:#94a3b8;margin-bottom:14px">請輸入帳號，若帳號存在將顯示重設選項。</p>
+    <div class="form-group">
+      <label>帳號</label>
+      <input type="text" class="input" id="forgot-user" placeholder="admin">
+    </div>
+    <div class="form-group">
+      <label>新密碼</label>
+      <input type="password" class="input" id="forgot-pwd" placeholder="至少 6 個字元">
+    </div>
+    <div class="form-group">
+      <label>管理員驗證碼</label>
+      <input type="password" class="input" id="forgot-admin-pwd" placeholder="需要目前管理員密碼驗證">
+    </div>
+    <div id="forgot-msg" class="msg error"></div>
+    <div class="modal-footer">
+      <button class="btn-cancel" onclick="hideForgotModal()">取消</button>
+      <button class="btn-submit" style="flex:1" onclick="doResetPassword()">確認重設</button>
+    </div>
+  </div>
+</div>
+
+<script>
+function showMsg(type, text) {
+  ["err-msg","ok-msg"].forEach(id => {
+    document.getElementById(id).classList.remove("show");
+  });
+  const id = type === "error" ? "err-msg" : "ok-msg";
+  const el = document.getElementById(id);
+  el.textContent = text;
+  el.classList.add("show");
+}
+
+function switchTab(tab) {
+  ["login","register"].forEach(t => {
+    document.getElementById("panel-" + t).classList.toggle("active", t === tab);
+    document.querySelectorAll(".tab-btn")[t==="login"?0:1].classList.toggle("active", t === tab);
+  });
+  ["err-msg","ok-msg"].forEach(id => document.getElementById(id).classList.remove("show"));
+}
+
+// ── 登入 ──────────────────────────────────
+async function doLogin() {
+  const username = document.getElementById("login-user").value.trim();
+  const password = document.getElementById("login-pwd").value;
+  const remember = document.getElementById("remember-me").checked;
+  const btn = document.getElementById("login-btn");
+  if (!username || !password) { showMsg("error","請輸入帳號和密碼"); return; }
+  btn.disabled = true;
+  btn.innerHTML = '<span class="spinner"></span>登入中...';
+  try {
+    const r = await fetch("/api/auth/login", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      credentials: "include",
+      body: JSON.stringify({ username, password, remember })
+    });
+    const text = await r.text();
+    let json;
+    try { json = JSON.parse(text); }
+    catch(e) { showMsg("error", "伺服器錯誤: " + text.slice(0,80)); return; }
+    if (json.success) {
+      window.location.href = "/";
+    } else {
+      showMsg("error", json.error || "登入失敗");
+    }
+  } catch(e) {
+    showMsg("error", "連線失敗: " + e.message);
+  } finally {
+    btn.disabled = false;
+    btn.innerHTML = "登入";
+  }
+}
+
+// ── 註冊 ──────────────────────────────────
+async function doRegister() {
+  const username = document.getElementById("reg-user").value.trim();
+  const password = document.getElementById("reg-pwd").value;
+  const password2 = document.getElementById("reg-pwd2").value;
+  const btn = document.getElementById("reg-btn");
+  if (!username || !password) { showMsg("error","請填寫所有欄位"); return; }
+  if (password.length < 6) { showMsg("error","密碼至少 6 個字元"); return; }
+  if (password !== password2) { showMsg("error","兩次密碼不一致"); return; }
+  btn.disabled = true;
+  btn.innerHTML = '<span class="spinner"></span>建立中...';
+  try {
+    const r = await fetch("/api/auth/register", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      credentials: "include",
+      body: JSON.stringify({ username, password })
+    });
+    const json = await r.json();
+    if (json.success) {
+      showMsg("success", "帳號建立成功！正在登入...");
+      setTimeout(() => window.location.href = "/", 1000);
+    } else {
+      showMsg("error", json.error || "註冊失敗");
+    }
+  } catch(e) {
+    showMsg("error", "連線失敗: " + e.message);
+  } finally {
+    btn.disabled = false;
+    btn.innerHTML = "建立帳號";
+  }
+}
+
+// ── 忘記密碼 ──────────────────────────────
+function showForgotModal() {
+  document.getElementById("forgot-modal").classList.add("show");
+  document.getElementById("forgot-msg").classList.remove("show");
+}
+function hideForgotModal() {
+  document.getElementById("forgot-modal").classList.remove("show");
+}
+async function doResetPassword() {
+  const username  = document.getElementById("forgot-user").value.trim();
+  const newPwd    = document.getElementById("forgot-pwd").value;
+  const adminPwd  = document.getElementById("forgot-admin-pwd").value;
+  const msgEl = document.getElementById("forgot-msg");
+  if (!username || !newPwd || !adminPwd) {
+    msgEl.textContent = "請填寫所有欄位"; msgEl.classList.add("show"); return;
+  }
+  if (newPwd.length < 6) {
+    msgEl.textContent = "新密碼至少 6 個字元"; msgEl.classList.add("show"); return;
+  }
+  try {
+    const r = await fetch("/api/auth/reset_password", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ username, new_password: newPwd, admin_password: adminPwd })
+    });
+    const json = await r.json();
+    if (json.success) {
+      hideForgotModal();
+      showMsg("success", "密碼已重設，請重新登入");
+    } else {
+      msgEl.textContent = json.error || "重設失敗"; msgEl.classList.add("show");
+    }
+  } catch(e) {
+    msgEl.textContent = "連線失敗"; msgEl.classList.add("show");
+  }
+}
+
+// 若已登入直接跳轉
+fetch("/api/auth/me", { credentials: "include" })
+  .then(r => r.json())
+  .then(j => { if (j.success) window.location.href = "/"; })
+  .catch(() => {});
+</script>
+</body>
+</html>
