@@ -124,7 +124,7 @@ def load_etf_list():
                 rows = cur.fetchall()
                 if rows:
                     print(f"[設定] 從資料庫載入 {len(rows)} 檔 ETF")
-                    return [dict(r) for r in rows]
+                    return [{"code": r[0], "name": r[1], "issuer": r[2], "source_key": r[3]} for r in rows]
             except Exception as e:
                 print(f"[設定] 資料庫載入失敗: {e}")
             finally:
