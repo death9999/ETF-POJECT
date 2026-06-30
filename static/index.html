@@ -402,8 +402,8 @@
   <div class="page-content" id="tab-changes">
     <div class="changes-subtab-nav" id="changes-subtab-nav">
       <button class="changes-subtab active" data-period="today" onclick="switchChangesPeriod('today')">今日</button>
-      <button class="changes-subtab" data-period="week" onclick="switchChangesPeriod('week')">本週</button>
-      <button class="changes-subtab" data-period="month" onclick="switchChangesPeriod('month')">本月</button>
+      <button class="changes-subtab" data-period="week" onclick="switchChangesPeriod('week')">近7天</button>
+      <button class="changes-subtab" data-period="month" onclick="switchChangesPeriod('month')">近30天</button>
       <button class="changes-subtab-history" onclick="openTradeHistory()">📋 歷史記錄</button>
     </div>
     <div id="changes-content">
@@ -1507,19 +1507,26 @@ async function openTradeHistory() {
       return;
     }
     const rows = recs.map(r => {
-      const statusColor = r.exit_date ? 'var(--text2)' : 'var(--green)';
-      return '<tr>' +
-        '<td style="font-family:monospace;font-weight:600">' + r.code + '</td>' +
-        '<td>' + (r.name || '') + '</td>' +
-        '<td>' + (r.entry_date || '—') + (r.entry_price ? '<br><small style="color:var(--text2)">$' + r.entry_price + '</small>' : '') + '</td>' +
-        '<td>' + (r.exit_date || '—') + '</td>' +
-        '<td>' + (r.holding_days != null ? r.holding_days + '天' : '—') + '</td>' +
+      const statusColor = r.exit_date ? '#6c757d' : '#16a34a';
+      return '<tr style="color:#212529">' +
+        '<td style="font-family:monospace;font-weight:600;color:#212529">' + r.code + '</td>' +
+        '<td style="color:#212529">' + (r.name || '') + '</td>' +
+        '<td style="color:#212529">' + (r.entry_date || '—') + (r.entry_price ? '<br><small style="color:#6c757d">$' + r.entry_price + '</small>' : '') + '</td>' +
+        '<td style="color:#212529">' + (r.exit_date || '—') + '</td>' +
+        '<td style="color:#212529">' + (r.holding_days != null ? r.holding_days + '天' : '—') + '</td>' +
         '<td style="color:' + statusColor + ';font-size:12px">' + r.status + '</td>' +
       '</tr>';
     }).join('');
-    content.innerHTML = '<div style="font-size:13px;color:var(--text2);margin-bottom:12px">共 ' + recs.length + ' 筆（含持有中）</div>' +
-      '<div class="table-wrap"><table>' +
-      '<thead><tr><th>代號</th><th>名稱</th><th>進場日/價</th><th>出場日</th><th>持有</th><th>狀態</th></tr></thead>' +
+    content.innerHTML = '<div style="font-size:13px;color:#6c757d;margin-bottom:12px">共 ' + recs.length + ' 筆（含持有中）</div>' +
+      '<div class="table-wrap" style="border:1px solid #dee2e6;border-radius:8px;overflow:hidden"><table style="width:100%;border-collapse:collapse">' +
+      '<thead style="background:#f8f9fa"><tr>' +
+        '<th style="padding:8px 12px;text-align:left;color:#495057;font-size:13px;border-bottom:1px solid #dee2e6">代號</th>' +
+        '<th style="padding:8px 12px;text-align:left;color:#495057;font-size:13px;border-bottom:1px solid #dee2e6">名稱</th>' +
+        '<th style="padding:8px 12px;text-align:left;color:#495057;font-size:13px;border-bottom:1px solid #dee2e6">進場日/價</th>' +
+        '<th style="padding:8px 12px;text-align:left;color:#495057;font-size:13px;border-bottom:1px solid #dee2e6">出場日</th>' +
+        '<th style="padding:8px 12px;text-align:left;color:#495057;font-size:13px;border-bottom:1px solid #dee2e6">持有天</th>' +
+        '<th style="padding:8px 12px;text-align:left;color:#495057;font-size:13px;border-bottom:1px solid #dee2e6">狀態</th>' +
+      '</tr></thead>' +
       '<tbody>' + rows + '</tbody></table></div>';
   } catch(e) {
     content.innerHTML = '<div class="error-msg">載入失敗：' + e.message + '</div>';
@@ -1868,11 +1875,11 @@ function renderPortfolioSummary() {
 </div>
 
 <!-- 歷史記錄 Modal -->
-<div id="trade-history-modal" style="display:none;position:fixed;inset:0;background:rgba(0,0,0,.55);z-index:1000;overflow-y:auto;padding:24px 12px">
-  <div style="max-width:700px;margin:0 auto;background:var(--card);border-radius:16px;padding:24px;position:relative">
-    <button onclick="closeTradeHistory()" style="position:absolute;top:16px;right:16px;background:none;border:none;font-size:22px;cursor:pointer;color:var(--text2)">✕</button>
-    <h2 id="th-title" style="margin:0 0 4px;font-size:17px;font-weight:700"></h2>
-    <p id="th-subtitle" style="margin:0 0 16px;font-size:13px;color:var(--text2)"></p>
+<div id="trade-history-modal" style="display:none;position:fixed;inset:0;background:rgba(0,0,0,.6);z-index:1000;overflow-y:auto;padding:24px 12px">
+  <div style="max-width:700px;margin:0 auto;background:#ffffff;border-radius:16px;padding:24px;position:relative;box-shadow:0 8px 32px rgba(0,0,0,.25)">
+    <button onclick="closeTradeHistory()" style="position:absolute;top:16px;right:16px;background:none;border:none;font-size:22px;cursor:pointer;color:#6c757d">✕</button>
+    <h2 id="th-title" style="margin:0 0 4px;font-size:17px;font-weight:700;color:#212529"></h2>
+    <p id="th-subtitle" style="margin:0 0 16px;font-size:13px;color:#6c757d"></p>
     <div id="th-content"><div class="loading"><div class="spinner"></div>載入中...</div></div>
   </div>
 </div>

@@ -1036,8 +1036,24 @@ def get_etf_changes_history(etf_code):
     else:
         period_label = f"{period_start.strftime('%Y/%m/%d')}～{period_end.strftime('%m/%d')}"
 
-    # offset=0 時背景同步最新資料
-    if offset == 0:
+    # 同步最新交易記錄（優先從 DB 快取，僅在 DB 無資料時才爬取）
+    conn_check = get_db()
+    db_empty = True
+    if conn_check:
+        try:
+            _cc = conn_check.cursor()
+            _cc.execute("SELECT COUNT(*) FROM etf_trade_records WHERE etf_code=%s", (etf_code,))
+            db_empty = (_cc.fetchone()[0] == 0)
+        except Exception:
+            pass
+        finally:
+            conn_check.close()
+
+    if db_empty:
+        # 首次：同步等待，確保資料入庫後再查詢
+        sync_trade_records(etf_code)
+    elif offset == 0:
+        # 有資料：背景更新即可
         threading.Thread(target=sync_trade_records, args=(etf_code,), daemon=True).start()
 
     result = get_period_trade_changes(etf_code, period_start, period_end)
@@ -1086,8 +1102,8 @@ def get_all_trade_history(etf_code):
     if etf_code not in ETF_CONFIG:
         return jsonify({"success": False, "error": f"不支援的ETF代號: {etf_code}"}), 404
 
-    # 確保資料最新
-    threading.Thread(target=sync_trade_records, args=(etf_code,), daemon=True).start()
+    # 同步最新資料（同步等待確保 Modal 能立即顯示）
+    sync_trade_records(etf_code)
 
     conn = get_db()
     if not conn:
