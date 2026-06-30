@@ -5,11 +5,113 @@
 """
 import re
 import json
-from datetime import date
+from datetime import date, timedelta
 
 from db import get_db
 from scrapers.holdings import safe_get
 from bs4 import BeautifulSoup
+
+
+def save_holdings_snapshot(etf_code, holdings):
+    """每次成功爬取持股後儲存快照，供期間 diff 使用。"""
+    if not holdings:
+        return
+    try:
+        today = date.today().isoformat()
+        conn = get_db()
+        if not conn:
+            return
+        try:
+            cur = conn.cursor()
+            cur.execute("""
+                INSERT INTO etf_holdings_snapshot (etf_code, snapshot_date, holdings_json)
+                VALUES (%s, %s, %s)
+                ON CONFLICT (etf_code, snapshot_date) DO UPDATE SET
+                    holdings_json = EXCLUDED.holdings_json, scraped_at = NOW()
+            """, (etf_code, today, json.dumps(holdings, ensure_ascii=False)))
+            conn.commit()
+            print(f"[DB] {etf_code} {today} 持股快照已儲存")
+        finally:
+            conn.close()
+    except Exception as e:
+        print(f"[DB] save_holdings_snapshot 失敗: {e}")
+
+
+def compute_holdings_diff(old_holdings, new_holdings, old_date, new_date):
+    """比較兩份持股清單，以 pct（權重%）為指標，回傳 changes dict。"""
+    old_map = {h["code"]: h for h in old_holdings if h.get("code")}
+    new_map = {h["code"]: h for h in new_holdings if h.get("code")}
+    changes = []
+
+    for code, nh in new_map.items():
+        new_pct = float(nh.get("pct", 0))
+        if code not in old_map:
+            changes.append({"code": code, "name": nh.get("name", ""),
+                             "shares": 0, "pct_change": round(new_pct, 3),
+                             "amount": f"+{new_pct:.2f}%", "type": "新增"})
+        else:
+            old_pct = float(old_map[code].get("pct", 0))
+            diff = round(new_pct - old_pct, 3)
+            if abs(diff) < 0.01:
+                continue
+            changes.append({"code": code, "name": nh.get("name", ""),
+                             "shares": 0, "pct_change": diff,
+                             "amount": f"{'+' if diff > 0 else ''}{diff:.2f}%",
+                             "type": "加碼" if diff > 0 else "減碼"})
+
+    for code, oh in old_map.items():
+        if code not in new_map:
+            old_pct = float(oh.get("pct", 0))
+            changes.append({"code": code, "name": oh.get("name", ""),
+                             "shares": 0, "pct_change": -old_pct,
+                             "amount": f"-{old_pct:.2f}%", "type": "刪除"})
+
+    changes.sort(key=lambda x: abs(x.get("pct_change", 0)), reverse=True)
+    return {
+        "date_range": f"{old_date} → {new_date}",
+        "add":    sum(1 for c in changes if c["type"] == "新增"),
+        "buy":    sum(1 for c in changes if c["type"] == "加碼"),
+        "sell":   sum(1 for c in changes if c["type"] == "減碼"),
+        "remove": sum(1 for c in changes if c["type"] == "刪除"),
+        "buy_amount": 0.0, "sell_amount": 0.0,
+        "changes": changes
+    }
+
+
+def get_period_diff(etf_code, since_date):
+    """
+    取最新持股快照 vs since_date 當日（或其後最近）快照的 diff。
+    since_date: date 物件（週一 or 月初）
+    """
+    conn = get_db()
+    if not conn:
+        return None
+    try:
+        cur = conn.cursor()
+        cur.execute("""
+            SELECT snapshot_date, holdings_json FROM etf_holdings_snapshot
+            WHERE etf_code=%s ORDER BY snapshot_date DESC LIMIT 1
+        """, (etf_code,))
+        row_latest = cur.fetchone()
+        if not row_latest:
+            return None
+        cur.execute("""
+            SELECT snapshot_date, holdings_json FROM etf_holdings_snapshot
+            WHERE etf_code=%s AND snapshot_date >= %s AND snapshot_date < %s
+            ORDER BY snapshot_date ASC LIMIT 1
+        """, (etf_code, since_date.isoformat(), str(row_latest[0])))
+        row_base = cur.fetchone()
+        if not row_base:
+            return None
+        return compute_holdings_diff(
+            json.loads(row_base[1]), json.loads(row_latest[1]),
+            str(row_base[0]), str(row_latest[0])
+        )
+    except Exception as e:
+        print(f"[DB] get_period_diff 失敗: {e}")
+        return None
+    finally:
+        conn.close()
 
 
 def scrape_daily_changes(etf_code):

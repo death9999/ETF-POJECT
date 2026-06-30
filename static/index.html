@@ -1411,39 +1411,50 @@ function renderChangesHistory(json) {
   if (!el) return;
   const data = json.data || [];
   const periodLabel = json.period === 'month' ? '本月' : '本週';
+  const isSummary = json.summary_mode === true;
 
   if (!data.length) {
-    el.innerHTML = '<div class="empty-state">📭 ' + periodLabel + '尚無操作日報資料<br><small>資料將在每個交易日公告後自動累積</small></div>';
+    el.innerHTML = '<div class="empty-state">📭 ' + periodLabel + '尚無資料<br><small>持股資料累積後將自動顯示累計變動</small></div>';
     return;
   }
 
   const typeClass = { '新增':'tag tag-add', '加碼':'tag tag-buy', '減碼':'tag tag-sell', '刪除':'tag tag-remove' };
   const typeLabel = { '新增':'新增', '加碼':'加碼', '減碼':'減碼', '刪除':'刪除' };
 
-  let html = '<div class="card" style="margin-bottom:16px"><div class="card-title">' + periodLabel + '操作彙總（共 ' + data.length + ' 個交易日）</div></div>';
+  let headerTitle;
+  if (isSummary && data[0] && data[0].date_range) {
+    headerTitle = periodLabel + '持股累計變動（' + data[0].date_range + '）';
+  } else {
+    headerTitle = periodLabel + '操作彙總（共 ' + data.length + ' 個交易日）';
+  }
+  let html = '<div class="card" style="margin-bottom:16px"><div class="card-title">' + headerTitle + '</div></div>';
 
   for (const day of data) {
     const totalBuy = day.buy + day.add;
     const totalSell = day.sell + day.remove;
     const rows = (day.changes || []).map(c => {
       const amtSign = c.type === '加碼' || c.type === '新增' ? 'buy-color' : 'sell-color';
-      return '<tr><td>' + c.code + '</td><td>' + (c.name || '') + '</td>' +
-             '<td style="text-align:right">' + (c.shares > 0 ? '+' : '') + (c.shares || 0) + '張</td>' +
-             '<td style="text-align:right" class="' + amtSign + '">' + (c.amount || '') + '</td>' +
+      // 快照 diff 模式：顯示比例變動（amount 已含%符號）；舊格式：顯示張數
+      const changeDisplay = (c.pct_change !== undefined && c.shares === 0)
+        ? '<td style="text-align:right" class="' + amtSign + '">' + (c.amount || '') + '</td>'
+        : '<td style="text-align:right" class="' + amtSign + '">' + (c.shares > 0 ? '+' : '') + (c.shares || 0) + '張</td>';
+      return '<tr><td style="font-family:monospace;font-weight:600">' + c.code + '</td>' +
+             '<td>' + (c.name || '') + '</td>' +
+             changeDisplay +
              '<td><span class="' + (typeClass[c.type] || 'tag tag-hold') + '">' + (typeLabel[c.type] || c.type) + '</span></td></tr>';
     }).join('');
 
+    const dateLabel = isSummary ? (day.date_range || day.trade_date) : day.trade_date;
     html += '<div class="history-day-card">' +
       '<div class="history-day-header">' +
-        '<span class="hd-date">' + day.trade_date + '</span>' +
+        '<span class="hd-date">' + dateLabel + '</span>' +
         '<span class="hd-badges">' +
           (totalBuy ? '<span class="tag tag-buy">加碼+新增 ' + totalBuy + '檔</span>' : '') +
-          (totalSell ? '<span class="tag tag-sell">減碼+刪除 ' + totalSell + '檔</span>' : '') +
+          (totalSell ? '<span class="tag tag-sell">減碼+清倉 ' + totalSell + '檔</span>' : '') +
         '</span>' +
-        '<span style="margin-left:auto;font-size:12px;color:var(--text-muted)">' + (day.date_range || '') + '</span>' +
       '</div>' +
       (rows ? '<div class="history-day-body"><div class="table-wrap"><table>' +
-        '<thead><tr><th>代號</th><th>名稱</th><th style="text-align:right">張數</th><th style="text-align:right">金額</th><th>操作</th></tr></thead>' +
+        '<thead><tr><th>代號</th><th>名稱</th><th style="text-align:right">比例變動</th><th>操作</th></tr></thead>' +
         '<tbody>' + rows + '</tbody></table></div></div>' : '') +
     '</div>';
   }

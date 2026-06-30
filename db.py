@@ -105,6 +105,17 @@ def init_db():
                 UNIQUE(etf_code, trade_date)
             )
         """)
+        # 持股快照表（供期間 diff：今日/本週/本月 累計變動）
+        cur.execute("""
+            CREATE TABLE IF NOT EXISTS etf_holdings_snapshot (
+                id SERIAL PRIMARY KEY,
+                etf_code VARCHAR(10) NOT NULL,
+                snapshot_date DATE NOT NULL,
+                holdings_json TEXT NOT NULL,
+                scraped_at TIMESTAMP DEFAULT NOW(),
+                UNIQUE(etf_code, snapshot_date)
+            )
+        """)
         # 個股收盤價快取表（避免重複查詢 TWSE/Yahoo）
         cur.execute("""
             CREATE TABLE IF NOT EXISTS stock_close_cache (

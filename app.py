@@ -19,7 +19,8 @@ import secrets
 from db import get_db, init_db, DATABASE_URL
 from scrapers.holdings import safe_get, scrape_etfinfo, scrape_fhtrust, scrape_capital, FALLBACK
 from scrapers.prices import scrape_moneydj_price, get_stock_close
-from scrapers.changes import scrape_daily_changes, save_changes_snapshot
+from scrapers.changes import (scrape_daily_changes, save_changes_snapshot,
+                              save_holdings_snapshot, get_period_diff)
 from routes.auth import auth_bp
 from routes.ai_stocks import ai_stocks_bp, _ai_stock_weekly_scheduler
 from routes.pages import pages_bp
@@ -603,6 +604,9 @@ def get_etf_holdings(etf_code):
         source = "demo"
     else:
         source = "live"
+        # 儲存今日持股快照（供本週/本月累計 diff）
+        threading.Thread(target=save_holdings_snapshot,
+                         args=(etf_code, holdings), daemon=True).start()
 
     result = {
         "success": True,
@@ -998,32 +1002,46 @@ def get_etf_changes(etf_code):
 
 @app.route("/api/etf/<etf_code>/changes/history", methods=["GET"])
 def get_etf_changes_history(etf_code):
-    """回傳指定ETF的操作日報歷史（本週 or 本月）"""
+    """回傳指定ETF的本週或本月累計持股變動（持股快照 diff）"""
     etf_code = etf_code.upper()
-    period = request.args.get("period", "week")  # week | month
+    period = request.args.get("period", "week")
     if etf_code not in ETF_CONFIG:
         return jsonify({"success": False, "error": f"不支援的ETF代號: {etf_code}"}), 404
 
     from datetime import date as _date, timedelta as _td
     today = _date.today()
     if period == "month":
-        start_date = today.replace(day=1)
+        since_date = today.replace(day=1)
     else:
-        start_date = today - _td(days=today.weekday())  # 本週一（週一=0）
+        since_date = today - _td(days=today.weekday())  # 本週一
 
+    # 優先用持股快照 diff
+    diff = get_period_diff(etf_code, since_date)
+    if diff:
+        return jsonify({
+            "success": True,
+            "code": etf_code,
+            "name": ETF_CONFIG[etf_code]["name"],
+            "period": period,
+            "start_date": since_date.isoformat(),
+            "summary_mode": True,
+            "data": [{"trade_date": today.isoformat(), **diff}]
+        })
+
+    # Fallback：查舊的 etf_changes_history 表
     try:
         conn = get_db()
         if not conn:
             return jsonify({"success": False, "error": "DB 連線失敗"}), 500
         try:
-            cur = conn.cursor()  # Bug 4 修正：pg8000 cursor 不支援 context manager
+            cur = conn.cursor()
             cur.execute("""
                 SELECT trade_date, date_range, add_count, buy_count,
                        sell_count, remove_count, buy_amount, sell_amount, changes_json
                 FROM etf_changes_history
                 WHERE etf_code=%s AND trade_date >= %s
                 ORDER BY trade_date DESC
-            """, (etf_code, start_date.isoformat()))
+            """, (etf_code, since_date.isoformat()))
             rows = cur.fetchall()
         finally:
             conn.close()
@@ -1050,7 +1068,7 @@ def get_etf_changes_history(etf_code):
         "code": etf_code,
         "name": ETF_CONFIG[etf_code]["name"],
         "period": period,
-        "start_date": start_date.isoformat(),
+        "start_date": since_date.isoformat(),
         "data": history
     })
 
