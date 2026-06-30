@@ -1875,12 +1875,24 @@ function renderPortfolioSummary() {
 </div>
 
 <!-- 歷史記錄 Modal -->
-<div id="trade-history-modal" style="display:none;position:fixed;inset:0;background:rgba(0,0,0,.6);z-index:1000;overflow-y:auto;padding:24px 12px">
-  <div style="max-width:700px;margin:0 auto;background:#ffffff;border-radius:16px;padding:24px;position:relative;box-shadow:0 8px 32px rgba(0,0,0,.25)">
-    <button onclick="closeTradeHistory()" style="position:absolute;top:16px;right:16px;background:none;border:none;font-size:22px;cursor:pointer;color:#6c757d">✕</button>
-    <h2 id="th-title" style="margin:0 0 4px;font-size:17px;font-weight:700;color:#212529"></h2>
-    <p id="th-subtitle" style="margin:0 0 16px;font-size:13px;color:#6c757d"></p>
-    <div id="th-content"><div class="loading"><div class="spinner"></div>載入中...</div></div>
+<div id="trade-history-modal" style="display:none;position:fixed;inset:0;z-index:9999">
+  <!-- 遮罩：完全覆蓋底層頁面 -->
+  <div id="th-backdrop" onclick="closeTradeHistory()"
+    style="position:fixed;inset:0;background:#000000;opacity:0.6;z-index:0"></div>
+  <!-- 內容框：白色不透明，獨立捲動 -->
+  <div style="position:absolute;inset:0;overflow-y:auto;padding:32px 16px;z-index:1;pointer-events:none">
+    <div style="max-width:720px;margin:0 auto;background:#ffffff;border-radius:16px;padding:28px 28px 32px;
+                box-shadow:0 16px 48px rgba(0,0,0,.35);position:relative;pointer-events:auto;
+                color:#212529;font-family:'Segoe UI','Microsoft JhengHei',sans-serif">
+      <button onclick="closeTradeHistory()"
+        style="position:absolute;top:14px;right:16px;background:#f1f3f5;border:none;border-radius:50%;
+               width:32px;height:32px;font-size:18px;cursor:pointer;color:#495057;line-height:1">✕</button>
+      <h2 id="th-title" style="margin:0 0 4px;font-size:18px;font-weight:700;color:#212529;padding-right:40px"></h2>
+      <p id="th-subtitle" style="margin:0 0 20px;font-size:13px;color:#6c757d"></p>
+      <div id="th-content" style="background:#ffffff;color:#212529">
+        <div style="text-align:center;padding:32px 0;color:#6c757d">載入中...</div>
+      </div>
+    </div>
   </div>
 </div>
 
