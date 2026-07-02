@@ -903,22 +903,21 @@ def get_etf_changes(etf_code):
     print(f"[操作日報] 抓取 {etf_code}...")
     changes = None
 
-    # ── 先查 DB：最新快照（2天內），有則直接回傳避免重複爬取 ────────────
+    # ── 先查 DB：今日快照，有則直接回傳避免重複爬取 ────────────────────
     try:
         from datetime import date as _dtoday
-        _today_str = _dtoday.today().isoformat()   # Bug 2 修正：原先未定義
-        _cutoff = (_dtoday.today() - __import__('datetime').timedelta(days=2)).isoformat()
+        _today_str = _dtoday.today().isoformat()
         _dbconn = get_db()
         if _dbconn:
             try:
-                _dc = _dbconn.cursor()  # Bug 4 修正：pg8000 cursor 不支援 context manager
+                _dc = _dbconn.cursor()
                 _dc.execute("""
                     SELECT date_range, add_count, buy_count, sell_count,
                            remove_count, buy_amount, sell_amount, changes_json
                     FROM etf_changes_history
-                    WHERE etf_code=%s AND trade_date >= %s
-                    ORDER BY trade_date DESC LIMIT 1
-                """, (etf_code, _cutoff))
+                    WHERE etf_code=%s AND trade_date = %s
+                    LIMIT 1
+                """, (etf_code, _today_str))
                 _row = _dc.fetchone()
                 if _row:
                     print(f"[操作日報] {etf_code} 命中 DB 快照（{_today_str}），直接回傳")
@@ -1471,9 +1470,18 @@ def _scheduled_refresh():
                                 print(f"[排程] 清除 {code} 快取，觸發重抓（{ah:02d}:{am:02d} 公告後）")
                             try:
                                 get_etf_holdings(code)
+                                # 主動重抓操作日報並更新 DB 快照
                                 ck = f"{code}_changes"
                                 if ck in cache:
                                     del cache[ck]
+                                try:
+                                    from scrapers.changes import scrape_daily_changes as _sdc, save_changes_snapshot as _scs
+                                    _fresh = _sdc(code)
+                                    if _fresh:
+                                        threading.Thread(target=_scs, args=(code, _fresh), daemon=True).start()
+                                        print(f"[排程] {code} 操作日報重抓完成，更新 DB 快照")
+                                except Exception as _ce:
+                                    print(f"[排程] {code} 操作日報重抓失敗: {_ce}")
                             except Exception as e:
                                 print(f"[排程] {code} 重抓失敗: {e}")
         except Exception as e:

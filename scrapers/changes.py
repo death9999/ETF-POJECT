@@ -223,10 +223,6 @@ def save_changes_snapshot(etf_code, changes):
         return
     try:
         trade_date = date.today().isoformat()
-        dr = changes.get("date_range", "")
-        dr_m = re.search(r"(\d{4}-\d{2}-\d{2})\s*[→>\-]+\s*(\d{4}-\d{2}-\d{2})", dr)
-        if dr_m:
-            trade_date = dr_m.group(2)
         conn = get_db()
         if not conn:
             return
