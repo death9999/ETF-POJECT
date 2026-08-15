@@ -5,10 +5,21 @@ import os
 import json
 import pg8000
 import bcrypt
+from datetime import datetime
+from zoneinfo import ZoneInfo
+
+# 台北時區（避免伺服器預設 UTC 時區造成日期/時間誤判，例如快取日期算錯一天）
+TAIPEI_TZ = ZoneInfo("Asia/Taipei")
 
 
-DATABASE_URL = os.environ.get("DATABASE_URL", "")
+def taipei_now():
+    """回傳台北時區的目前時間"""
+    return datetime.now(TAIPEI_TZ)
 
+
+def taipei_today():
+    """回傳台北時區的今天日期（date 物件）"""
+    return taipei_now().date()
 
 def get_db():
     """取得資料庫連線（pg8000，相容 Python 3.14）"""

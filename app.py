@@ -16,12 +16,13 @@ import os
 import bcrypt
 import secrets
 
-from db import get_db, init_db, DATABASE_URL
+from db import get_db, init_db, DATABASE_URL, taipei_today, taipei_now
 from scrapers.holdings import safe_get, scrape_etfinfo, scrape_fhtrust, scrape_capital, FALLBACK
 from scrapers.prices import scrape_moneydj_price, get_stock_close
 from scrapers.changes import (scrape_daily_changes, save_changes_snapshot,
                               save_holdings_snapshot, seed_period_snapshots,
-                              get_period_diff)
+                              get_period_diff,
+                              get_period_buy_sell_summary)
 from scrapers.history import sync_trade_records, get_period_trade_changes
 from routes.auth import auth_bp
 from routes.ai_stocks import ai_stocks_bp, _ai_stock_weekly_scheduler
@@ -87,7 +88,7 @@ ETF_ANNOUNCEMENT_SCHEDULE = {
 
 def get_announcement_label(etf_code):
     """根據公告時程判斷目前資料狀態，回傳標籤文字與類型"""
-    now = datetime.now()
+    now = taipei_now()
     sch = ETF_ANNOUNCEMENT_SCHEDULE.get(etf_code, {"announce_hour": 16, "announce_min": 30})
     ah, am = sch["announce_hour"], sch["announce_min"]
     is_weekday = now.weekday() < 5
@@ -931,8 +932,7 @@ def get_etf_changes(etf_code):
 
     # ── 先查 DB：今日快照，有則直接回傳避免重複爬取 ────────────────────
     try:
-        from datetime import date as _dtoday
-        _today_str = _dtoday.today().isoformat()
+        _today_str = taipei_today().isoformat()
         _dbconn = get_db()
         if _dbconn:
             try:
@@ -945,7 +945,26 @@ def get_etf_changes(etf_code):
                     LIMIT 1
                 """, (etf_code, _today_str))
                 _row = _dc.fetchone()
+                _use_cache = False
                 if _row:
+                    # 快照完整性檢查：異動筆數與明細不一致（例如舊版爬蟲留下的壞資料）就視為無效，強制重新抓取
+                    _row_counts = sum((_row[i] or 0) for i in range(1, 5))
+                    try:
+                        _row_changes_len = len(json.loads(_row[7] or "[]"))
+                    except Exception:
+                        _row_changes_len = 0
+                    _row_valid = not (_row_counts > 0 and _row_changes_len == 0)
+
+                    _sch2 = ETF_ANNOUNCEMENT_SCHEDULE.get(etf_code, {"announce_hour": 16, "announce_min": 30})
+                    _ann_dt = taipei_now().replace(hour=_sch2["announce_hour"], minute=_sch2["announce_min"], second=0, microsecond=0)
+                    if not _row_valid:
+                        _use_cache = False
+                    elif taipei_now() < _ann_dt:
+                        _use_cache = True
+                    else:
+                        _dr_m2 = re.search(r"(\d{4}-\d{2}-\d{2})\s*[→>-]+\s*(\d{4}-\d{2}-\d{2})", _row[0] or "")
+                        _use_cache = bool(_dr_m2 and _dr_m2.group(2) == _today_str)
+                if _row and _use_cache:
                     print(f"[操作日報] {etf_code} 命中 DB 快照（{_today_str}），直接回傳")
                     _cached = {
                         "date_range": _row[0] or "",
@@ -1044,7 +1063,7 @@ def get_etf_changes_history(etf_code):
         return jsonify({"success": False, "error": f"不支援的ETF代號: {etf_code}"}), 404
 
     from datetime import date as _date, timedelta as _td
-    today = _date.today()
+    today = taipei_today()
     period = request.args.get("period", "week")
     try:
         offset = int(request.args.get("offset", 0))
@@ -1084,6 +1103,7 @@ def get_etf_changes_history(etf_code):
     result = get_period_trade_changes(etf_code, period_start, period_end)
     added   = result["added"]
     removed = result["removed"]
+    _bs_summary = get_period_buy_sell_summary(etf_code, period_start, period_end)
 
     def _fmt(s, action):
         return {
@@ -1113,9 +1133,10 @@ def get_etf_changes_history(etf_code):
         "data": [{
             "trade_date": period_end.isoformat(),
             "date_range": f"{period_start} → {period_end}",
-            "add": len(added), "buy": 0, "sell": 0, "remove": len(removed),
-            "buy_amount": 0.0, "sell_amount": 0.0,
-            "changes": changes
+            "add": len(added), "buy": _bs_summary["buy"], "sell": _bs_summary["sell"], "remove": len(removed),
+            "buy_amount": _bs_summary["buy_amount"], "sell_amount": _bs_summary["sell_amount"],
+            "changes": changes,
+        "buy_sell_stocks": _bs_summary["stocks"]
         }] if has_data else []
     })
 
@@ -1494,7 +1515,7 @@ def _scheduled_refresh():
     print("[排程] 持股自動更新排程啟動")
     while True:
         try:
-            now = datetime.now()
+            now = taipei_now()
             if now.weekday() < 5:
                 for code, sch in ETF_ANNOUNCEMENT_SCHEDULE.items():
                     ah, am = sch["announce_hour"], sch["announce_min"]

@@ -9,7 +9,7 @@ from datetime import date
 import requests
 from bs4 import BeautifulSoup
 
-from db import get_db
+from db import get_db, taipei_today
 
 HEADERS = {
     "User-Agent": (
@@ -191,7 +191,7 @@ def get_period_trade_changes(etf_code, period_start, period_end=None):
     回傳 { 'added': [...], 'removed': [...] }
     """
     if period_end is None:
-        period_end = date.today()
+        period_end = taipei_today()
 
     conn = get_db()
     if not conn:

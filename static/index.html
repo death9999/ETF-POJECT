@@ -1468,11 +1468,13 @@ function renderChangesHistory(json) {
   html += '<div class="change-cards">' +
     '<div class="change-card"><div class="change-card-label">新增進場</div><div class="change-card-val add-color">' + added.length + '</div><div class="change-card-sub">檔</div></div>' +
     '<div class="change-card"><div class="change-card-label">清倉出場</div><div class="change-card-val remove-color">' + removed.length + '</div><div class="change-card-sub">檔</div></div>' +
+    '<div class="change-card"><div class="change-card-label">加碼</div><div class="change-card-val buy-color">' + (day.buy||0) + '</div><div class="change-card-sub">檔</div></div>' +
+    '<div class="change-card"><div class="change-card-label">減碼</div><div class="change-card-val sell-color">' + (day.sell||0) + '</div><div class="change-card-sub">檔</div></div>' +
   '</div>';
 
   const thead = '<thead><tr><th>代號</th><th>名稱</th><th>進場日</th><th>出場日/狀態</th><th>操作</th></tr></thead>';
 
-  if (added.length) {
+    if (added.length) {
     html += '<div class="card" style="margin-top:12px"><div class="card-title">進場個股（' + added.length + ' 檔）</div>' +
       '<div class="table-wrap"><table>' + thead + '<tbody>' + added.map(_tradeRow).join('') + '</tbody></table></div></div>';
   }
