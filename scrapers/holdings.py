@@ -148,9 +148,16 @@ def _parse_nuxt_holdings_json(raw_str):
         weight = resolved.get("weight", resolved.get("pct"))
         if code is None or weight is None:
             continue
-        code = str(code)
-        if not re.match(r"^\d{4,6}[A-Za-z]?$", code):
+        code = str(code).strip()
+        # 海外成分股代號格式為「數字代號 國別」（例如 "4062 JP"、"007660 KP"），
+        # 取出數字代號另存，國別附註在名稱後方，避免被下方純數字代號的規則過濾掉
+        code_match = re.match(r"^(\d{4,6}[A-Za-z]?)(?:\s+([A-Za-z]{2}))?$", code)
+        if not code_match:
             continue
+        code, country = code_match.group(1), code_match.group(2)
+        country_label = {"JP": "日", "KP": "韓", "KQ": "韓", "KR": "韓"}.get(country, "")
+        if country_label and name:
+            name = f"{name}（{country_label}）"
         try:
             pct = round(float(weight), 3)
         except (TypeError, ValueError):
@@ -325,8 +332,40 @@ def scrape_capital(product_id):
     return holdings if holdings else None
 
 
-# 靜態備援資料（所有來源失敗時使用，資料日期 2026/05/27，00410A為2026/08/31）
+# 靜態備援資料（所有來源失敗時使用，資料日期 2026/05/27，00410A為2026/08/31，009828為2026/09/08）
 FALLBACK = {
+    "009828": [
+        {"code":"4062","name":"Ibiden Co Ltd（日）","pct":10.73,"status":"hold"},
+        {"code":"3037","name":"欣興電子","pct":10.29,"status":"hold"},
+        {"code":"2383","name":"台光電子材料","pct":9.54,"status":"hold"},
+        {"code":"5016","name":"JX金屬公司（日）","pct":6.60,"status":"hold"},
+        {"code":"6988","name":"日東電工公司（日）","pct":6.41,"status":"hold"},
+        {"code":"4958","name":"臻鼎科技控股","pct":5.85,"status":"hold"},
+        {"code":"2368","name":"金像電子","pct":5.43,"status":"hold"},
+        {"code":"6274","name":"台燿科技","pct":4.94,"status":"hold"},
+        {"code":"5706","name":"三井金屬礦業有限公司（日）","pct":4.12,"status":"hold"},
+        {"code":"3189","name":"景碩科技","pct":3.72,"status":"hold"},
+        {"code":"8046","name":"南亞電路板","pct":3.68,"status":"hold"},
+        {"code":"000150","name":"斗山有限公司（韓）","pct":3.51,"status":"hold"},
+        {"code":"2313","name":"華通電腦","pct":3.46,"status":"hold"},
+        {"code":"3044","name":"健鼎科技","pct":3.06,"status":"hold"},
+        {"code":"007660","name":"IsuPetasys Co Ltd（韓）","pct":2.03,"status":"hold"},
+        {"code":"5714","name":"同和控股有限公司（日）","pct":1.62,"status":"hold"},
+        {"code":"6213","name":"聯茂電子","pct":1.61,"status":"hold"},
+        {"code":"8358","name":"金居開發","pct":1.52,"status":"hold"},
+        {"code":"3110","name":"日東紡織（日）","pct":1.37,"status":"hold"},
+        {"code":"353200","name":"大德電子股份有限公司（韓）","pct":1.14,"status":"hold"},
+        {"code":"4626","name":"太陽控股有限公司（日）","pct":1.13,"status":"hold"},
+        {"code":"6787","name":"名幸電子股份有限公司（日）","pct":1.13,"status":"hold"},
+        {"code":"222800","name":"SIMMTECH Co Ltd（韓）","pct":1.04,"status":"hold"},
+        {"code":"1802","name":"台灣玻璃工業","pct":0.89,"status":"hold"},
+        {"code":"1815","name":"富喬工業","pct":0.87,"status":"hold"},
+        {"code":"3131","name":"弘塑科技","pct":0.76,"status":"hold"},
+        {"code":"8039","name":"台虹科技","pct":0.72,"status":"hold"},
+        {"code":"6278","name":"台灣表面黏著科技","pct":0.67,"status":"hold"},
+        {"code":"4966","name":"上村工業有限公司（日）","pct":0.62,"status":"hold"},
+        {"code":"6191","name":"精成科技","pct":0.33,"status":"hold"},
+    ],
     "00410A": [
         {"code":"3008","name":"大立光","pct":8.29,"status":"hold"},
         {"code":"2330","name":"台積電","pct":5.86,"status":"hold"},

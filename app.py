@@ -21,8 +21,7 @@ from scrapers.holdings import safe_get, scrape_etfinfo, scrape_fhtrust, scrape_c
 from scrapers.prices import scrape_moneydj_price, get_stock_close
 from scrapers.changes import (scrape_daily_changes, save_changes_snapshot,
                               save_holdings_snapshot, seed_period_snapshots,
-                              get_period_diff,
-                              get_period_buy_sell_summary)
+                              get_period_diff)
 from scrapers.history import sync_trade_records, get_period_trade_changes
 from routes.auth import auth_bp
 from routes.ai_stocks import ai_stocks_bp, _ai_stock_weekly_scheduler
@@ -80,7 +79,7 @@ CACHE_TTL = 300  # 5分鐘更新一次（秒）
 # 復華投信：收盤後約 16:00
 # ──────────────────────────────────────────
 ETF_ANNOUNCEMENT_SCHEDULE = {
-    "00403A": {"issuer": "統一投信", "announce_hour": 16, "announce_min": 30},
+    "00410A": {"issuer": "永豐投信", "announce_hour": 16, "announce_min": 30},
     "00981A": {"issuer": "統一投信", "announce_hour": 16, "announce_min": 30},
     "00991A": {"issuer": "復華投信", "announce_hour": 16, "announce_min": 0},
     "00992A": {"issuer": "群益投信", "announce_hour": 15, "announce_min": 30},
@@ -1055,70 +1054,61 @@ def get_etf_changes(etf_code):
 @app.route("/api/etf/<etf_code>/changes/history", methods=["GET"])
 def get_etf_changes_history(etf_code):
     """
-    操作日報「近7天／近30天」：逐日列出區間內每一天下午公告的加減碼結果。
-    week: 過去7個日曆天（含當日）；month: 過去30個日曆天（含當日）。
-    offset=0 為最近一期，offset=1 往前推一個視窗，以此類推。
-    資料來源為每日排程於公告時間擷取並存檔的 etf_changes_history 快照，
-    只有已經擷取到的日期才會出現在清單中。
+    操作日報「近7天／近30天」：整段區間彙總成一張表（非逐日清單）。
+    - week：直接呼叫 etfinfo.tw 官方期間彙總 API（免費，涵蓋最新7天，
+      不受限於我們自己何時開始存快照）。
+    - month：etfinfo.tw 更長天期彙總屬付費 Pro 功能，無免費來源，
+      改為彙總我們自己每日排程存檔的 etf_changes_history 快照。
+      offset=0 為最近一期，offset=1 往前推一個30天視窗，以此類推。
     """
     etf_code = etf_code.upper()
     if etf_code not in ETF_CONFIG:
         return jsonify({"success": False, "error": f"不支援的ETF代號: {etf_code}"}), 404
 
-    from datetime import timedelta as _td
-    from scrapers.changes import get_daily_changes_range
-    today = taipei_today()
     period = request.args.get("period", "week")
+
+    if period == "week":
+        from scrapers.changes import scrape_period_summary
+        summary = scrape_period_summary(etf_code, days=7)
+        if not summary:
+            return jsonify({"success": False, "error": "近7天彙總資料載入失敗，請稍後再試"}), 503
+        return jsonify({
+            "success": True,
+            "code": etf_code,
+            "name": ETF_CONFIG[etf_code]["name"],
+            "period": "week",
+            "period_label": summary["date_range"],
+            "source": "live",
+            "data": summary,
+        })
+
+    from datetime import timedelta as _td
+    from scrapers.changes import get_period_changes_summary
     try:
         offset = int(request.args.get("offset", 0))
     except ValueError:
         offset = 0
 
-    # 滾動視窗：week=過去7天，month=過去30天（含視窗結束當天）
-    window_days = 7 if period == "week" else 30
-    window = _td(days=window_days)
+    today = taipei_today()
+    window = _td(days=30)
     period_end   = today - window * offset
     period_start = period_end - window + _td(days=1)
+    period_label = f"{period_start.strftime('%Y/%m/%d')}～{period_end.strftime('%m/%d')}"
 
-    if period == "week":
-        period_label = f"{period_start.strftime('%m/%d')}～{period_end.strftime('%m/%d')}"
-    else:
-        period_label = f"{period_start.strftime('%Y/%m/%d')}～{period_end.strftime('%m/%d')}"
-
-    days = get_daily_changes_range(etf_code, period_start, period_end)
-
-    # 視窗涵蓋今天時，若今天的快照還沒進資料庫（例如使用者還沒點過「今日」頁籤），
-    # 比照「今日」頁籤即時擷取一次，確保不用等排程時間到也能看到today
-    today_str = today.isoformat()
-    if offset == 0 and not any(d["trade_date"] == today_str for d in days):
-        try:
-            _today_resp = get_etf_changes(etf_code)
-            _today_json = _today_resp.get_json() if hasattr(_today_resp, "get_json") else None
-            _td_data = (_today_json or {}).get("data") or {}
-            if _td_data.get("changes") or any(_td_data.get(k, 0) for k in ("add", "buy", "sell", "remove")):
-                days.insert(0, {
-                    "trade_date": today_str,
-                    "date_range": _td_data.get("date_range", ""),
-                    "add": _td_data.get("add", 0), "buy": _td_data.get("buy", 0),
-                    "sell": _td_data.get("sell", 0), "remove": _td_data.get("remove", 0),
-                    "buy_amount": _td_data.get("buy_amount", 0.0),
-                    "sell_amount": _td_data.get("sell_amount", 0.0),
-                    "changes": _td_data.get("changes", []),
-                })
-        except Exception as e:
-            print(f"[操作日報] {etf_code} 即時補抓今日資料失敗: {e}")
+    summary = get_period_changes_summary(etf_code, period_start, period_end)
+    summary["date_range"] = period_label
 
     return jsonify({
         "success": True,
         "code": etf_code,
         "name": ETF_CONFIG[etf_code]["name"],
-        "period": period,
+        "period": "month",
         "period_label": period_label,
         "period_start": period_start.isoformat(),
         "period_end":   period_end.isoformat(),
         "offset": offset,
-        "has_data": bool(days),
-        "days": days,
+        "source": "snapshot",
+        "data": summary,
     })
 
 
@@ -1528,7 +1518,11 @@ def _scheduled_refresh():
         try:
             now = taipei_now()
             if now.weekday() < 5:
-                for code, sch in ETF_ANNOUNCEMENT_SCHEDULE.items():
+                # 用 ETF_CONFIG（動態、由管理後台維護）而非 ETF_ANNOUNCEMENT_SCHEDULE，
+                # 這樣日後新增/更換 ETF 時，即使還沒手動設定該代號的公告時間，
+                # 也會套用預設 16:30 自動排程，不會被排程完全略過。
+                for code in list(ETF_CONFIG.keys()):
+                    sch = ETF_ANNOUNCEMENT_SCHEDULE.get(code, {"announce_hour": 16, "announce_min": 30})
                     ah, am = sch["announce_hour"], sch["announce_min"]
                     if now.hour == ah and am <= now.minute < am + 2:
                         with app.app_context():

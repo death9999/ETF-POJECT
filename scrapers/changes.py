@@ -320,46 +320,83 @@ def get_daily_changes_range(etf_code, start_date, end_date):
     return days
 
 
-def get_period_buy_sell_summary(etf_code, period_start, period_end):
-    """彙總期間內加碼/減碼統計（依 etf_changes_history 每日快照加總）。"""
-    empty = {"buy": 0, "sell": 0, "buy_amount": 0.0, "sell_amount": 0.0, "stocks": []}
-    conn = get_db()
-    if not conn:
+def get_period_changes_summary(etf_code, period_start, period_end):
+    """
+    彙總期間內所有加碼/減碼/新增/刪除事件成一張表（依 etf_changes_history 每日快照攤平加總）。
+    每一筆 change 會附上 date（原始快照的 trade_date），供前端顯示是哪一天發生的異動。
+    """
+    empty = {"add": 0, "buy": 0, "sell": 0, "remove": 0,
+             "buy_amount": 0.0, "sell_amount": 0.0, "changes": []}
+    days = get_daily_changes_range(etf_code, period_start, period_end)
+    if not days:
         return empty
+
+    result = dict(empty)
+    buy_total = 0.0
+    sell_total = 0.0
+    for day in days:
+        result["add"] += day.get("add", 0)
+        result["buy"] += day.get("buy", 0)
+        result["sell"] += day.get("sell", 0)
+        result["remove"] += day.get("remove", 0)
+        buy_total += float(day.get("buy_amount", 0) or 0)
+        sell_total += float(day.get("sell_amount", 0) or 0)
+        for ch in day.get("changes", []):
+            row = dict(ch)
+            row["date"] = day["trade_date"]
+            result["changes"].append(row)
+    result["buy_amount"] = round(buy_total, 2)
+    result["sell_amount"] = round(sell_total, 2)
+    return result
+
+
+def scrape_period_summary(etf_code, days=7):
+    """
+    直接呼叫 etfinfo.tw 官方的期間彙總 API，取得最近 N 天內所有加減碼事件的完整彙總，
+    不受限於我們自己何時開始存快照。
+    注意：etfinfo.tw 只有 days=7 對免費帳號開放，30/90/180 天需付費 Pro 帳號（會回傳 402）。
+    """
+    url = f"https://www.etfinfo.tw/api/active/{etf_code}/period-summary?days={days}"
+    r = safe_get(url, timeout=12)
+    if not r:
+        return None
     try:
-        cur = conn.cursor()
-        cur.execute("""
-            SELECT buy_count, sell_count, buy_amount, sell_amount, changes_json
-            FROM etf_changes_history
-            WHERE etf_code=%s AND trade_date >= %s AND trade_date <= %s
-            ORDER BY trade_date ASC
-        """, (etf_code, str(period_start), str(period_end)))
-        rows = cur.fetchall()
-        # 過濾掉損壞的快照（異動筆數與明細對不上，例如舊版爬蟲留下的壞資料），避免污染加總
-        valid_rows = []
-        for r in rows:
-            try:
-                row_changes_len = len(json.loads(r[4] or "[]"))
-            except Exception:
-                row_changes_len = 0
-            if ((r[0] or 0) + (r[1] or 0)) > 0 and row_changes_len == 0:
-                continue
-            valid_rows.append(r)
-        rows = valid_rows
-        buy = sum(r[0] or 0 for r in rows)
-        sell = sum(r[1] or 0 for r in rows)
-        buy_amount = sum(float(r[2] or 0) for r in rows)
-        sell_amount = sum(float(r[3] or 0) for r in rows)
-        stocks = []
-        for r in rows:
-            try:
-                stocks += [c for c in json.loads(r[4] or "[]") if c.get("type") in ("加碼", "減碼")]
-            except Exception:
-                pass
-        return {"buy": buy, "sell": sell, "buy_amount": round(buy_amount, 2),
-                "sell_amount": round(sell_amount, 2), "stocks": stocks}
+        payload = r.json()
     except Exception as e:
-        print(f"[DB] get_period_buy_sell_summary 失敗: {e}")
-        return empty
-    finally:
-        conn.close()
+        print(f"[操作日報] period-summary JSON 解析失敗 {etf_code}: {e}")
+        return None
+
+    s = payload.get("summary") or {}
+    result = {
+        "date_range": f"{payload.get('fromDate','')} → {payload.get('toDate','')}",
+        "add": s.get("added", 0), "buy": s.get("increased", 0),
+        "sell": s.get("decreased", 0), "remove": s.get("removed", 0),
+        "buy_amount": 0.0, "sell_amount": 0.0, "changes": []
+    }
+
+    buy_total = 0.0
+    sell_total = 0.0
+    for act in (payload.get("activities") or []):
+        code_, name_ = act.get("code", ""), act.get("name", "")
+        for ev in (act.get("sequence") or []):
+            type_str = _CHANGE_TYPE_LABEL.get(ev.get("type", ""))
+            if not type_str:
+                continue
+            shares = int((ev.get("sharesDelta") or 0) / 1000)
+            amt = ev.get("estimatedAmount") or 0
+            amt_wan = round(abs(amt) / 10000, 0)
+            result["changes"].append({
+                "code": code_, "name": name_, "date": ev.get("date", ""),
+                "shares": shares,
+                "amount": f"{'+' if amt >= 0 else '-'}{amt_wan:.0f}萬",
+                "type": type_str
+            })
+            if amt > 0:
+                buy_total += amt
+            elif amt < 0:
+                sell_total += abs(amt)
+
+    result["changes"].sort(key=lambda c: c.get("date", ""), reverse=True)
+    result["buy_amount"] = round(buy_total / 1e8, 2)
+    result["sell_amount"] = round(sell_total / 1e8, 2)
+    return result if result["changes"] else None
